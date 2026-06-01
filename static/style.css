@@ -13,4 +13,49 @@ main { max-width: 32rem; margin: 0 auto; }
 h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
 
 p { color: #9aa0a6; }
+form {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1.5rem 0;
+  flex-wrap: wrap;
+}
+
+input[type="file"] { flex: 1; min-width: 12rem; }
+
+button {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 6px;
+  background: #3b82f6;
+  color: #fff;
+  cursor: pointer;
+}
+
+button:disabled { opacity: 0.6; cursor: wait; }
+
+#status.error { color: #f87171; }
+
+.score { font-size: 1.25rem; color: #e8eaed; }
+
+#risks, #safe {
+  list-style: none;
+  padding: 0;
+}
+
+#risks li, #safe li {
+  margin: 0.5rem 0;
+  padding: 0.75rem;
+  border-radius: 6px;
+  background: #1a1d24;
+}
+
+#risks li strong { display: block; }
+
+.severity-CRITICAL { border-left: 3px solid #ef4444; }
+.severity-HIGH { border-left: 3px solid #f97316; }
+.severity-MEDIUM { border-left: 3px solid #eab308; }
+.severity-LOW { border-left: 3px solid #22c55e; }
+
+details { margin-top: 1rem; color: #9aa0a6; }
+
 
