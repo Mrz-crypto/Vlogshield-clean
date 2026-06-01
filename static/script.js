@@ -24,3 +24,37 @@ function renderList(el, items, rich) {
   }
 }
 
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const file = fileInput.files[0];
+  if (!file) return;
+
+  btn.disabled = true;
+  result.hidden = true;
+  showStatus("Scanning…");
+
+  const body = new FormData();
+  body.append("file", file);
+
+  try {
+    const res = await fetch("/scan", { method: "POST", body });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Scan failed");
+
+    document.getElementById("score").textContent = data.score;
+    document.getElementById("grade").textContent = data.grade;
+    renderList(document.getElementById("risks"), data.risks, true);
+
+    const safeWrap = document.getElementById("safe-wrap");
+    const safe = data.safe_fields || [];
+    safeWrap.hidden = safe.length === 0;
+    renderList(document.getElementById("safe"), safe, false);
+
+    result.hidden = false;
+    status.hidden = true;
+  } catch (err) {
+    showStatus(err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
