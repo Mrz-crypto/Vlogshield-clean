@@ -1,5 +1,9 @@
-from PIL import Image
-from PIL.ExifTags import GPSTAGS, TAGS
+import uuid
+from pathlib import Path
+
+from flask import jsonify, render_template, request
+
+from app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY
 
 # tag -> (name, points, severity, advice)
 RISKS = {
@@ -22,3 +26,42 @@ RISKS = {
     "XPComment": ("Windows Comment Tag", 15, "MEDIUM", "Windows comment metadata found."),
     "XPSubject": ("Windows Subject Tag", 10, "LOW", "Windows subject metadata found."),
 }
+
+def score_image(path):
+    data = extract_exif(path)
+    risks = []
+    safe_fields = []
+    total_score = 0
+
+    for tag, value in data.items():
+        if tag in SKIP:
+            continue
+        if tag in RISKS:
+            name, points, severity, advice = RISKS[tag]
+            risks.append({
+                "name": name,
+                "value": f": {value}",
+                "severity": severity,
+                "advice": advice,
+            })
+            total_score += points
+        else:
+            safe_fields.append({"tag": tag, "value": value})
+
+    risks.sort(key=lambda item: SEVERITY.get(item["severity"], 99))
+    score = min(total_score, 100)
+    if score >= 50:
+        grade = "High risk"
+    elif score >= 20:
+        grade = "Medium risk"
+    elif score > 0:
+        grade = "Low risk"
+    else:
+        grade = "Safe"
+
+    return {
+        "score": score,
+        "grade": grade,
+        "risks": risks,
+        "safe_fields": safe_fields,
+    }
