@@ -58,4 +58,51 @@ button:disabled { opacity: 0.6; cursor: wait; }
 
 details { margin-top: 1rem; color: #9aa0a6; }
 
+summary {
+  cursor: pointer;
+  font-weight: 500;
+  padding: 0.5rem;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+summary:hover {
+  background-color: #252b34;
+}
+
+#analytics {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #1a1d24;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  color: #9aa0a6;
+  display: none;
+}
+
+#analytics.active { display: block; }
+
+.progress-bar {
+  width: 100%;
+  height: 4px;
+  background: #252b34;
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 0.5rem 0;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #06b6d4);
+  width: 0%;
+  transition: width 0.3s ease;
+}
+
+@media (max-width: 640px) {
+  body { padding: 1rem; }
+  h1 { font-size: 1.5rem; }
+  form { flex-direction: column; }
+  input[type="file"] { min-width: auto; }
+}
+
 
