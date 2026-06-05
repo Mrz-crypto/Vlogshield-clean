@@ -1,9 +1,16 @@
 import uuid
+import logging
 from pathlib import Path
+from datetime import datetime
+from functools import wraps
 
 from flask import Flask, jsonify, render_template, request
 from PIL import Image
 from PIL.ExifTags import GPSTAGS, TAGS
+
+# Configure logging for production monitoring
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
 UPLOAD_DIR = Path(__file__).resolve().parent / "uploads"
@@ -15,33 +22,53 @@ app = Flask(
     static_folder=str(ROOT / "static"),
 )
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
+app.config["JSON_SORT_KEYS"] = False
 UPLOAD_DIR.mkdir(exist_ok=True)
+SKIP = {"MakerNote", "PrintImageMatching"}
+SEVERITY = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+
+# Request counter for analytics
+request_count = {"total": 0, "successful": 0, "failed": 0}
+
+def track_request(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        request_count["total"] += 1
+        return f(*args, **kwargs)
+    return decorated
 
 
-def allowed(filename):
-    return Path(filename).suffix.lower() in ALLOWED
+def _decode_bytes(value):
+    return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
 
 
-@app.route("/")
-def index():
-    return render_template("index.html")
-
-
-@app.route("/scan", methods=["POST"])
-def scan():
-    file = request.files.get("file")
-    if not file or not file.filename:
-        return jsonify({"error": "No file uploaded"}), 400
-    if not allowed(file.filename):
-        return jsonify({"error": "File type not supported"}), 400
-
-    ext = Path(file.filename).suffix.lower().lstrip(".")
-    path = UPLOAD_DIR / f"{uuid.uuid4().hex}.{ext}"
-
+def extract_exif(path):
     try:
-        file.save(path)
-        return jsonify(score_image(str(path)))
-    except Exception as e:
-        return jsonify({"error": f"Processing failed: {e}"}), 500
-    finally:
-        path.unlink(missing_ok=True)
+        raw = Image.open(path)._getexif() or {}
+    except Exception:
+        return {}
+
+    out = {}
+    for tag_id, value in raw.items():
+        name = TAGS.get(tag_id, str(tag_id))
+        if name == "GPSInfo":
+            out["GPS"] = {GPSTAGS.get(k, str(k)): v for k, v in value.items()}
+        else:
+            out[name] = _decode_bytes(value)
+    return out
+
+try:
+    from . import scorer
+except ImportError:
+    import scorer
+
+@app.route("/health", methods=["GET"])
+def health_check():
+    """Health check endpoint for monitoring."""
+    return jsonify({"status": "healthy", "timestamp": datetime.utcnow().isoformat()}), 200
+
+@app.route("/stats", methods=["GET"])
+def get_stats():
+    """Return application statistics."""
+    logger.info(f"Stats requested - Total: {request_count['total']}, Success: {request_count['successful']}, Failed: {request_count['failed']}")
+    return jsonify(request_count), 200

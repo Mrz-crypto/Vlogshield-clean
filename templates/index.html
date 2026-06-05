@@ -9,7 +9,7 @@
 <body>
   <main>
     <h1>VlogShield</h1>
-    <p>Check image metadata before you post.</p>
+    <p>Check image metadata before you post. Protect your privacy by identifying and removing sensitive metadata from your images.</p>
 
     <form id="form">
       <input type="file" id="file" accept="image/*" required>
@@ -18,13 +18,26 @@
 
     <p id="status" hidden></p>
     <section id="result" hidden>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
       <p class="score">Score: <span id="score"></span> — <span id="grade"></span></p>
       <ul id="risks"></ul>
       <details id="safe-wrap" hidden>
         <summary>Other metadata</summary>
         <ul id="safe"></ul>
       </details>
+      <div id="analytics" class="active"></div>
     </section>
+
+    <details>
+      <summary>About VlogShield</summary>
+      <p>
+        VlogShield analyzes image metadata (EXIF data) to identify potential privacy risks before sharing online.
+        It detects GPS coordinates, camera information, timestamps, and other embedded data that could compromise your privacy.
+        All scans are processed locally and no files are stored.
+      </p>
+    </details>
   </main>
   <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
