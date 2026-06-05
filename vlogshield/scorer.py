@@ -1,5 +1,19 @@
-from PIL import Image
-from PIL.ExifTags import GPSTAGS, TAGS
+import uuid
+from pathlib import Path
+from datetime import datetime
+import logging
+
+from flask import jsonify, render_template, request
+
+try:
+    from .app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count
+except ImportError:
+    from app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count
+
+logger = logging.getLogger(__name__)
+
+# Scan history for analytics
+scan_history = []
 
 # tag -> (name, points, severity, advice)
 RISKS = {
@@ -76,17 +90,46 @@ def index():
 def scan():
     file = request.files.get("file")
     if not file or not file.filename:
+        request_count["failed"] += 1
+        logger.warning("Scan attempted without file")
         return jsonify({"error": "No file uploaded"}), 400
     if not allowed(file.filename):
+        request_count["failed"] += 1
+        logger.warning(f"Unsupported file type: {file.filename}")
         return jsonify({"error": "File type not supported"}), 400
+
+    # File size validation (16MB limit)
+    if len(file.read()) > 16 * 1024 * 1024:
+        request_count["failed"] += 1
+        return jsonify({"error": "File too large"}), 413
+    file.seek(0)
 
     ext = Path(file.filename).suffix.lower().lstrip(".")
     path = UPLOAD_DIR / f"{uuid.uuid4().hex}.{ext}"
 
     try:
         file.save(path)
-        return jsonify(score_image(str(path)))
+        result = score_image(str(path))
+        request_count["successful"] += 1
+        
+        # Log scan to history
+        scan_history.append({
+            "filename": file.filename,
+            "timestamp": datetime.utcnow().isoformat(),
+            "score": result["score"],
+            "grade": result["grade"]
+        })
+        
+        logger.info(f"Image scan completed: {file.filename} - Score: {result['score']}")
+        return jsonify(result)
     except Exception as e:
+        request_count["failed"] += 1
+        logger.error(f"Processing failed for {file.filename}: {str(e)}")
         return jsonify({"error": f"Processing failed: {e}"}), 500
     finally:
         path.unlink(missing_ok=True)
+
+@app.route("/history", methods=["GET"])
+def get_history():
+    """Return recent scan history."""
+    return jsonify({"scans": scan_history[-50:]}), 200
