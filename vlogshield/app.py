@@ -1,8 +1,6 @@
-import uuid
 import logging
 from pathlib import Path
 from datetime import datetime
-from functools import wraps
 
 from flask import Flask, jsonify, render_template, request
 from PIL import Image
@@ -30,13 +28,6 @@ SEVERITY = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 # Request counter for analytics
 request_count = {"total": 0, "successful": 0, "failed": 0}
 
-def track_request(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        request_count["total"] += 1
-        return f(*args, **kwargs)
-    return decorated
-
 
 def _decode_bytes(value):
     return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
@@ -57,10 +48,12 @@ def extract_exif(path):
             out[name] = _decode_bytes(value)
     return out
 
-try:
-    from . import scorer
-except ImportError:
-    import scorer
+
+@app.before_request
+def count_request():
+    if request.endpoint != "static":
+        request_count["total"] += 1
+
 
 @app.route("/health", methods=["GET"])
 def health_check():
@@ -72,3 +65,17 @@ def get_stats():
     """Return application statistics."""
     logger.info(f"Stats requested - Total: {request_count['total']}, Success: {request_count['successful']}, Failed: {request_count['failed']}")
     return jsonify(request_count), 200
+
+
+def register_routes():
+    try:
+        from . import scorer
+    except ImportError:
+        import scorer
+
+
+register_routes()
+
+
+if __name__ == "__main__":
+    app.run(debug=True, host="0.0.0.0", port=5000)

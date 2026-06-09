@@ -8,7 +8,10 @@ from flask import jsonify, render_template, request
 try:
     from .app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count
 except ImportError:
-    from app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count
+    try:
+        from __main__ import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count
+    except ImportError:
+        from app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count
 
 logger = logging.getLogger(__name__)
 
