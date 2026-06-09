@@ -63,7 +63,7 @@ form.addEventListener("submit", async (e) => {
 
   btn.disabled = true;
   result.hidden = true;
-  showStatus(`Scanning ${file.name} (${formatFileSize(file.size)})…`);
+  showStatus(`Scanning ${file.name} (${formatFileSize(file.size)})...`);
 
   const body = new FormData();
   body.append("file", file);
