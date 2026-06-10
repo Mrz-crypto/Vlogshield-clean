@@ -36,12 +36,18 @@ function validateFile(file) {
 }
 
 function renderList(el, items, rich) {
-  el.innerHTML = "";
+  el.replaceChildren();
   for (const item of items) {
     const li = document.createElement("li");
     if (rich) {
+      // Build nodes explicitly: metadata values come from the uploaded file
+      // and must never be injected as HTML.
       li.className = `severity-${item.severity}`;
-      li.innerHTML = `<strong>${item.name}</strong>${item.value}<br><small>${item.advice}</small>`;
+      const name = document.createElement("strong");
+      name.textContent = item.name;
+      const advice = document.createElement("small");
+      advice.textContent = item.advice;
+      li.append(name, document.createTextNode(item.value), document.createElement("br"), advice);
     } else {
       li.textContent = `${item.tag}: ${item.value}`;
     }
@@ -80,6 +86,13 @@ form.addEventListener("submit", async (e) => {
 
     document.getElementById("score").textContent = data.score;
     document.getElementById("grade").textContent = data.grade;
+
+    // Reflect the score on the previously-unused progress bar.
+    const progressFill = document.getElementById("progressFill");
+    if (progressFill) {
+      progressFill.style.width = `${Math.min(data.score, 100)}%`;
+    }
+
     renderList(document.getElementById("risks"), data.risks, true);
 
     const safeWrap = document.getElementById("safe-wrap");
