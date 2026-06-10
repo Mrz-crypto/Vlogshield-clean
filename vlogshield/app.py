@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 from flask import Flask, jsonify, render_template, request
 from PIL import Image
@@ -36,7 +36,8 @@ def _decode_bytes(value):
 def extract_exif(path):
     try:
         raw = Image.open(path)._getexif() or {}
-    except Exception:
+    except Exception as e:
+        logger.warning(f"EXIF extraction failed for {path}: {e}")
         return {}
 
     out = {}
@@ -58,7 +59,7 @@ def count_request():
 @app.route("/health", methods=["GET"])
 def health_check():
     """Health check endpoint for monitoring."""
-    return jsonify({"status": "healthy", "timestamp": datetime.utcnow().isoformat()}), 200
+    return jsonify({"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}), 200
 
 @app.route("/stats", methods=["GET"])
 def get_stats():
