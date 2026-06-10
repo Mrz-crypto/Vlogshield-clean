@@ -1,6 +1,6 @@
 import uuid
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from flask import jsonify, render_template, request
@@ -15,7 +15,8 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Scan history for analytics
+# Scan history for analytics (bounded to avoid unbounded memory growth)
+MAX_HISTORY = 500
 scan_history = []
 
 # tag -> (name, points, severity, advice)
@@ -101,11 +102,13 @@ def scan():
         logger.warning(f"Unsupported file type: {file.filename}")
         return jsonify({"error": "File type not supported"}), 400
 
-    # File size validation (16MB limit)
-    if len(file.read()) > 16 * 1024 * 1024:
+    # File size validation (16MB limit) without buffering the whole upload.
+    file.stream.seek(0, 2)
+    size = file.stream.tell()
+    file.stream.seek(0)
+    if size > 16 * 1024 * 1024:
         request_count["failed"] += 1
         return jsonify({"error": "File too large"}), 413
-    file.seek(0)
 
     ext = Path(file.filename).suffix.lower().lstrip(".")
     path = UPLOAD_DIR / f"{uuid.uuid4().hex}.{ext}"
@@ -115,14 +118,16 @@ def scan():
         result = score_image(str(path))
         request_count["successful"] += 1
         
-        # Log scan to history
+        # Log scan to history, keeping only the most recent entries.
         scan_history.append({
             "filename": file.filename,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "score": result["score"],
             "grade": result["grade"]
         })
-        
+        if len(scan_history) > MAX_HISTORY:
+            del scan_history[:-MAX_HISTORY]
+
         logger.info(f"Image scan completed: {file.filename} - Score: {result['score']}")
         return jsonify(result)
     except Exception as e:
