@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="VlogShield checks image EXIF metadata for privacy risks like GPS coordinates and device serial numbers before you post.">
   <title>VlogShield</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
@@ -12,11 +13,12 @@
     <p>Check image metadata before you post. Protect your privacy by identifying and removing sensitive metadata from your images.</p>
 
     <form id="form">
-      <input type="file" id="file" accept="image/*" required>
+      <label for="file" class="sr-only">Choose an image to scan</label>
+      <input type="file" id="file" name="file" accept="image/*" required>
       <button type="submit" id="btn">Scan</button>
     </form>
 
-    <p id="status" hidden></p>
+    <p id="status" role="status" aria-live="polite" hidden></p>
     <section id="result" hidden>
       <div class="progress-bar">
         <div class="progress-fill" id="progressFill"></div>

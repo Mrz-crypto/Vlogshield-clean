@@ -33,6 +33,27 @@ button {
 
 button:disabled { opacity: 0.6; cursor: wait; }
 
+/* Visible keyboard focus for accessibility. */
+button:focus-visible,
+input[type="file"]:focus-visible,
+summary:focus-visible {
+  outline: 2px solid #06b6d4;
+  outline-offset: 2px;
+}
+
+/* Visually hidden but available to screen readers. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 #status.error { color: #f87171; }
 
 .score { font-size: 1.25rem; color: #e8eaed; }
