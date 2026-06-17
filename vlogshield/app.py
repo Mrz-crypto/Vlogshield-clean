@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -13,13 +14,15 @@ logger = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent.parent
 UPLOAD_DIR = Path(__file__).resolve().parent / "uploads"
 ALLOWED = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".heic", ".webp"}
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "16")) * 1024 * 1024
+STARTED_AT = datetime.now(timezone.utc)
 
 app = Flask(
     __name__,
     template_folder=str(ROOT / "templates"),
     static_folder=str(ROOT / "static"),
 )
-app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 app.config["JSON_SORT_KEYS"] = False
 UPLOAD_DIR.mkdir(exist_ok=True)
 SKIP = {"MakerNote", "PrintImageMatching"}
@@ -33,9 +36,19 @@ def _decode_bytes(value):
     return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
 
 
+def _json_error(message, status_code):
+    request_count["failed"] += 1
+    return jsonify({"error": message}), status_code
+
+
+def _uptime_seconds():
+    return round((datetime.now(timezone.utc) - STARTED_AT).total_seconds(), 2)
+
+
 def extract_exif(path):
     try:
-        raw = Image.open(path)._getexif() or {}
+        with Image.open(path) as image:
+            raw = image._getexif() or {}
     except Exception as e:
         logger.warning(f"EXIF extraction failed for {path}: {e}")
         return {}
@@ -59,13 +72,32 @@ def count_request():
 @app.route("/health", methods=["GET"])
 def health_check():
     """Health check endpoint for monitoring."""
-    return jsonify({"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}), 200
+    return jsonify({
+        "status": "healthy",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "uptime_seconds": _uptime_seconds(),
+        "max_upload_mb": round(MAX_UPLOAD_BYTES / (1024 * 1024)),
+    }), 200
 
 @app.route("/stats", methods=["GET"])
 def get_stats():
     """Return application statistics."""
     logger.info(f"Stats requested - Total: {request_count['total']}, Success: {request_count['successful']}, Failed: {request_count['failed']}")
-    return jsonify(request_count), 200
+    return jsonify({
+        **request_count,
+        "uptime_seconds": _uptime_seconds(),
+        "success_rate": round(request_count["successful"] / max(request_count["total"], 1), 3),
+    }), 200
+
+
+@app.errorhandler(413)
+def too_large(_error):
+    return _json_error("File too large", 413)
+
+
+@app.errorhandler(404)
+def not_found(_error):
+    return _json_error("Endpoint not found", 404)
 
 
 def register_routes():

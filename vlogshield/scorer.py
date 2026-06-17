@@ -4,14 +4,15 @@ from datetime import datetime, timezone
 import logging
 
 from flask import jsonify, render_template, request
+from werkzeug.utils import secure_filename
 
 try:
-    from .app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count
+    from .app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES
 except ImportError:
     try:
-        from __main__ import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count
+        from __main__ import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES
     except ImportError:
-        from app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count
+        from app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,30 @@ RISKS = {
     "XPComment": ("Windows Comment Tag", 15, "MEDIUM", "Windows comment metadata found."),
     "XPSubject": ("Windows Subject Tag", 10, "LOW", "Windows subject metadata found."),
 }
+
+RECOMMENDATIONS = {
+    "CRITICAL": "Strip metadata before sharing and avoid posting the original file.",
+    "HIGH": "Remove identifying fields before publishing this image.",
+    "MEDIUM": "Review this metadata and remove it when posting publicly.",
+    "LOW": "This field is usually low impact, but stripping it is still safer.",
+}
+
+
+def build_summary(score, risks):
+    if not risks:
+        return {
+            "headline": "No sensitive EXIF metadata found.",
+            "next_step": "This image looks clean for sharing.",
+            "top_severity": "NONE",
+        }
+
+    top = risks[0]["severity"]
+    return {
+        "headline": f"{len(risks)} metadata risk{'s' if len(risks) != 1 else ''} found.",
+        "next_step": RECOMMENDATIONS.get(top, "Review the metadata before sharing."),
+        "top_severity": top,
+    }
+
 
 def score_image(path):
     data = extract_exif(path)
@@ -76,6 +101,7 @@ def score_image(path):
     return {
         "score": score,
         "grade": grade,
+        "summary": build_summary(score, risks),
         "risks": risks,
         "safe_fields": safe_fields,
     }
@@ -83,6 +109,13 @@ def score_image(path):
 
 def allowed(filename):
     return Path(filename).suffix.lower() in ALLOWED
+
+
+def file_size(file):
+    file.stream.seek(0, 2)
+    size = file.stream.tell()
+    file.stream.seek(0)
+    return size
 
 
 @app.route("/")
@@ -103,14 +136,13 @@ def scan():
         return jsonify({"error": "File type not supported"}), 400
 
     # File size validation (16MB limit) without buffering the whole upload.
-    file.stream.seek(0, 2)
-    size = file.stream.tell()
-    file.stream.seek(0)
-    if size > 16 * 1024 * 1024:
+    size = file_size(file)
+    if size > MAX_UPLOAD_BYTES:
         request_count["failed"] += 1
         return jsonify({"error": "File too large"}), 413
 
-    ext = Path(file.filename).suffix.lower().lstrip(".")
+    original_name = secure_filename(file.filename) or "upload"
+    ext = Path(original_name).suffix.lower().lstrip(".")
     path = UPLOAD_DIR / f"{uuid.uuid4().hex}.{ext}"
 
     try:
@@ -120,10 +152,11 @@ def scan():
         
         # Log scan to history, keeping only the most recent entries.
         scan_history.append({
-            "filename": file.filename,
+            "filename": original_name,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "score": result["score"],
-            "grade": result["grade"]
+            "grade": result["grade"],
+            "risk_count": len(result["risks"]),
         })
         if len(scan_history) > MAX_HISTORY:
             del scan_history[:-MAX_HISTORY]
