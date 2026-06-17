@@ -4,3 +4,7 @@
 __pycache__/
 *.pyc
 vlogshield/uploads/
+uploads/
+.pytest_cache/
+.coverage
+htmlcov/

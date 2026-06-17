@@ -31,6 +31,14 @@ You can also run the app directly:
 python vlogshield/app.py
 ```
 
+Optional runtime settings:
+
+```bash
+set MAX_UPLOAD_MB=16
+set FLASK_RUN_HOST=0.0.0.0
+set FLASK_RUN_PORT=5000
+```
+
 ### Production Mode (with Gunicorn)
 ```bash
 gunicorn --bind 0.0.0.0:5000 wsgi:app
@@ -44,6 +52,8 @@ gunicorn --bind 0.0.0.0:5000 wsgi:app
 - **GET** `/health` - Health check endpoint
 - **GET** `/stats` - Application statistics
 
+The `/health` endpoint includes uptime and upload-limit details. The `/stats` endpoint includes total, successful, failed, and success-rate counters.
+
 ## Usage
 
 1. Open `http://localhost:5000` in your browser
@@ -51,6 +61,7 @@ gunicorn --bind 0.0.0.0:5000 wsgi:app
 3. The app will analyze EXIF metadata and display:
    - Privacy score (0-100)
    - Risk level (Safe, Low, Medium, High risk)
+   - A short privacy summary
    - Identified sensitive metadata
    - Recommendations
 
@@ -77,5 +88,8 @@ Environment variables (in `.env`):
 - `FLASK_ENV` - Set to 'development' or 'production'
 - `FLASK_DEBUG` - Enable/disable debug mode
 - `FLASK_APP` - Flask application path
+- `FLASK_RUN_HOST` - Host used by `python wsgi.py`
+- `FLASK_RUN_PORT` - Port used by `python wsgi.py`
+- `MAX_UPLOAD_MB` - Maximum accepted upload size in megabytes
 
 Use `.env.example` as the template for local configuration. The real `.env` file is ignored by Git.
