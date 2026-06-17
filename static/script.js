@@ -1,8 +1,10 @@
 const form = document.getElementById("form");
 const fileInput = document.getElementById("file");
 const btn = document.getElementById("btn");
+const clearBtn = document.getElementById("clearBtn");
 const status = document.getElementById("status");
 const result = document.getElementById("result");
+const fileMeta = document.getElementById("fileMeta");
 
 // Analytics tracking
 const analytics = {
@@ -13,6 +15,7 @@ const analytics = {
 
 // Maximum file size in MB
 const MAX_FILE_SIZE = 16;
+const ALLOWED_EXTENSIONS = ["jpg", "jpeg", "png", "tiff", "tif", "heic", "webp"];
 
 function showStatus(text, isError) {
   status.hidden = false;
@@ -32,7 +35,32 @@ function validateFile(file) {
   if (file.size > MAX_FILE_SIZE * 1024 * 1024) {
     return `File size (${formatFileSize(file.size)}) exceeds maximum allowed size (${MAX_FILE_SIZE}MB)`;
   }
+  const extension = file.name.split(".").pop().toLowerCase();
+  if (!ALLOWED_EXTENSIONS.includes(extension)) {
+    return "Please choose a JPG, PNG, TIFF, HEIC, or WebP image.";
+  }
   return null;
+}
+
+function updateFileMeta() {
+  const file = fileInput.files[0];
+  if (!file) {
+    fileMeta.hidden = true;
+    fileMeta.textContent = "";
+    return;
+  }
+
+  fileMeta.hidden = false;
+  fileMeta.textContent = `${file.name} - ${formatFileSize(file.size)}`;
+}
+
+function resetScan() {
+  form.reset();
+  result.hidden = true;
+  status.hidden = true;
+  updateFileMeta();
+  const progressFill = document.getElementById("progressFill");
+  if (progressFill) progressFill.style.width = "0%";
 }
 
 function renderList(el, items, rich) {
@@ -86,6 +114,8 @@ form.addEventListener("submit", async (e) => {
 
     document.getElementById("score").textContent = data.score;
     document.getElementById("grade").textContent = data.grade;
+    document.getElementById("summary").textContent = data.summary?.headline || "";
+    document.getElementById("nextStep").textContent = data.summary?.next_step || "";
 
     // Reflect the score on the previously-unused progress bar.
     const progressFill = document.getElementById("progressFill");
@@ -114,3 +144,6 @@ form.addEventListener("submit", async (e) => {
     btn.disabled = false;
   }
 });
+
+fileInput.addEventListener("change", updateFileMeta);
+clearBtn.addEventListener("click", resetScan);
