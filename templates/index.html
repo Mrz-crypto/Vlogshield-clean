@@ -8,42 +8,97 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <main>
-    <h1>VlogShield</h1>
-    <p>Check image metadata before you post. Protect your privacy by identifying and removing sensitive metadata from your images.</p>
-
-    <form id="form">
-      <label for="file" class="sr-only">Choose an image to scan</label>
-      <input type="file" id="file" name="file" accept=".jpg,.jpeg,.png,.tiff,.tif,.heic,.webp,image/*" required>
-      <button type="submit" id="btn">Scan</button>
-      <button type="button" id="clearBtn">Clear</button>
-    </form>
-
-    <p id="fileMeta" class="file-meta" hidden></p>
-    <p id="status" role="status" aria-live="polite" hidden></p>
-    <section id="result" hidden>
-      <div class="progress-bar">
-        <div class="progress-fill" id="progressFill"></div>
+  <main class="app-shell">
+    <section class="hero" aria-labelledby="page-title">
+      <div class="hero-copy">
+        <p class="eyebrow">Image privacy scanner</p>
+        <h1 id="page-title">VlogShield</h1>
+        <p class="intro">Check image metadata before you publish. Spot GPS, device, timestamp, and author fields while the file stays on this server.</p>
       </div>
-      <p class="score">Score: <span id="score"></span> - <span id="grade"></span></p>
-      <p id="summary" class="summary"></p>
-      <p id="nextStep" class="next-step"></p>
-      <ul id="risks"></ul>
-      <details id="safe-wrap" hidden>
-        <summary>Other metadata</summary>
-        <ul id="safe"></ul>
-      </details>
-      <div id="analytics" class="active"></div>
+      <div class="signal-board" aria-hidden="true">
+        <span class="signal-line"></span>
+        <span class="signal-line short"></span>
+        <span class="signal-chip danger">GPS</span>
+        <span class="signal-chip warn">Model</span>
+        <span class="signal-chip safe">Clean</span>
+      </div>
     </section>
 
-    <details>
-      <summary>About VlogShield</summary>
-      <p>
-        VlogShield analyzes image metadata (EXIF data) to identify potential privacy risks before sharing online.
-        It detects GPS coordinates, camera information, timestamps, and other embedded data that could compromise your privacy.
-        All scans are processed locally and no files are stored.
-      </p>
-    </details>
+    <section class="workspace" aria-label="Scanner workspace">
+      <form id="form" class="scan-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Scan Image</h2>
+            <p>JPG, PNG, TIFF, HEIC, or WebP up to 16 MB.</p>
+          </div>
+          <span class="status-pill" id="modePill">Ready</span>
+        </div>
+
+        <label for="file" class="drop-zone" id="dropZone">
+          <span class="drop-icon" aria-hidden="true"></span>
+          <span class="drop-title">Drop an image here</span>
+          <span class="drop-copy">or choose one from your device</span>
+        </label>
+        <input class="file-input" type="file" id="file" name="file" accept=".jpg,.jpeg,.png,.tiff,.tif,.heic,.webp,image/*" required>
+
+        <p id="fileMeta" class="file-meta" hidden></p>
+        <p id="status" class="status-message" role="status" aria-live="polite" hidden></p>
+
+        <div class="actions">
+          <button type="submit" id="btn">Scan image</button>
+          <button type="button" id="clearBtn" class="secondary">Clear</button>
+        </div>
+      </form>
+
+      <section id="result" class="result-panel" aria-live="polite" hidden>
+        <div class="score-row">
+          <div>
+            <span class="section-label">Privacy score</span>
+            <p class="score"><span id="score">0</span><span class="score-total">/100</span></p>
+          </div>
+          <span id="grade" class="grade-pill">Ready</span>
+        </div>
+
+        <div class="progress-bar" aria-hidden="true">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+
+        <div class="summary-box">
+          <p id="summary" class="summary"></p>
+          <p id="nextStep" class="next-step"></p>
+        </div>
+
+        <div class="metadata-section">
+          <div class="section-heading">
+            <h2>Detected risks</h2>
+            <span id="riskCount">0</span>
+          </div>
+          <ul id="risks" class="metadata-list"></ul>
+        </div>
+
+        <details id="safe-wrap" class="metadata-details" hidden>
+          <summary>Other metadata</summary>
+          <ul id="safe" class="metadata-list compact"></ul>
+        </details>
+      </section>
+    </section>
+
+    <section class="insights" aria-label="Scan insights">
+      <div id="analytics" class="insight-tile">
+        <span class="section-label">Session</span>
+        <p>Scans: 0 | Avg score: 0.0 | High risk: 0</p>
+      </div>
+      <div class="insight-tile">
+        <span class="section-label">Recent scans</span>
+        <ul id="historyList" class="history-list">
+          <li>No scans yet.</li>
+        </ul>
+      </div>
+      <details class="about-panel">
+        <summary>About VlogShield</summary>
+        <p>VlogShield analyzes EXIF metadata for privacy risks before sharing online. It detects GPS coordinates, camera details, timestamps, authorship fields, and other embedded data that can reveal more than intended.</p>
+      </details>
+    </section>
   </main>
   <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
