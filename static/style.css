@@ -263,6 +263,19 @@ h2 {
   left: 23px;
 }
 
+.image-preview {
+  width: min(100%, 260px);
+  max-height: 154px;
+  margin-bottom: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.drop-zone.has-preview .drop-icon {
+  display: none;
+}
+
 .drop-title {
   display: block;
   margin-bottom: 6px;

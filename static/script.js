@@ -9,6 +9,8 @@ const dropZone = document.getElementById("dropZone");
 const modePill = document.getElementById("modePill");
 const historyList = document.getElementById("historyList");
 const serverStats = document.getElementById("serverStats");
+const imagePreview = document.getElementById("imagePreview");
+let previewUrl = "";
 
 const analytics = {
   totalScans: 0,
@@ -64,12 +66,33 @@ function updateFileMeta() {
     fileMeta.hidden = true;
     fileMeta.textContent = "";
     setMode("Ready");
+    updatePreview(null);
     return;
   }
 
   fileMeta.hidden = false;
   fileMeta.textContent = `${file.name} - ${formatFileSize(file.size)}`;
   setMode("Selected");
+  updatePreview(file);
+}
+
+function updatePreview(file) {
+  if (previewUrl) {
+    URL.revokeObjectURL(previewUrl);
+    previewUrl = "";
+  }
+
+  if (!file || !file.type.startsWith("image/")) {
+    imagePreview.hidden = true;
+    imagePreview.removeAttribute("src");
+    dropZone.classList.remove("has-preview");
+    return;
+  }
+
+  previewUrl = URL.createObjectURL(file);
+  imagePreview.src = previewUrl;
+  imagePreview.hidden = false;
+  dropZone.classList.add("has-preview");
 }
 
 function resetScan() {
