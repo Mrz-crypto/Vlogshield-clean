@@ -8,6 +8,7 @@ const fileMeta = document.getElementById("fileMeta");
 const dropZone = document.getElementById("dropZone");
 const modePill = document.getElementById("modePill");
 const historyList = document.getElementById("historyList");
+const serverStats = document.getElementById("serverStats");
 
 const analytics = {
   totalScans: 0,
@@ -205,6 +206,18 @@ async function refreshHistory() {
   }
 }
 
+async function refreshServerStats() {
+  try {
+    const res = await fetch("/stats");
+    if (!res.ok) return;
+    const data = await res.json();
+    serverStats.querySelector("p").textContent =
+      `Total: ${data.total} | Success: ${data.successful} | Failed: ${data.failed}`;
+  } catch (_error) {
+    serverStats.querySelector("p").textContent = "Stats unavailable.";
+  }
+}
+
 function setDroppedFile(file) {
   const dataTransfer = new DataTransfer();
   dataTransfer.items.add(file);
@@ -265,6 +278,7 @@ form.addEventListener("submit", async (event) => {
     hideStatus();
     setMode("Complete");
     await refreshHistory();
+    await refreshServerStats();
   } catch (err) {
     showStatus(err.message, true);
   } finally {
@@ -279,3 +293,4 @@ fileInput.addEventListener("change", () => {
 
 clearBtn.addEventListener("click", resetScan);
 refreshHistory();
+refreshServerStats();
