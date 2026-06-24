@@ -1,7 +1,6 @@
 .venv/
 .venv-1/
 .env
-.claude/
 __pycache__/
 *.pyc
 vlogshield/uploads/
