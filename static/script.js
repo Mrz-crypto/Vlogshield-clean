@@ -10,6 +10,7 @@ const modePill = document.getElementById("modePill");
 const historyList = document.getElementById("historyList");
 const serverStats = document.getElementById("serverStats");
 const imagePreview = document.getElementById("imagePreview");
+const maxUploadMb = document.getElementById("maxUploadMb");
 let previewUrl = "";
 
 const analytics = {
@@ -30,6 +31,7 @@ function showStatus(text, isError = false) {
   status.hidden = false;
   status.textContent = text;
   status.className = isError ? "status-message error" : "status-message";
+  fileInput.setAttribute("aria-invalid", String(isError));
   setMode(isError ? "Check file" : "Scanning", isError ? "error" : "scanning");
 }
 
@@ -37,6 +39,7 @@ function hideStatus() {
   status.hidden = true;
   status.textContent = "";
   status.className = "status-message";
+  fileInput.setAttribute("aria-invalid", "false");
 }
 
 function formatFileSize(bytes) {
@@ -53,11 +56,16 @@ function validateFile(file) {
   }
 
   const extension = file.name.split(".").pop().toLowerCase();
-  if (!ALLOWED_EXTENSIONS.includes(extension)) {
+  if (extension === file.name.toLowerCase() || !ALLOWED_EXTENSIONS.includes(extension)) {
     return "Please choose a JPG, PNG, TIFF, HEIC, or WebP image.";
   }
 
   return null;
+}
+
+function updateSubmitState() {
+  const file = fileInput.files[0];
+  btn.disabled = !file || Boolean(validateFile(file));
 }
 
 function updateFileMeta() {
@@ -67,6 +75,7 @@ function updateFileMeta() {
     fileMeta.textContent = "";
     setMode("Ready");
     updatePreview(null);
+    updateSubmitState();
     return;
   }
 
@@ -74,6 +83,7 @@ function updateFileMeta() {
   fileMeta.textContent = `${file.name} - ${formatFileSize(file.size)}`;
   setMode("Selected");
   updatePreview(file);
+  updateSubmitState();
 }
 
 function updatePreview(file) {
@@ -140,11 +150,17 @@ function renderList(el, items, rich) {
       advice.textContent = item.advice;
       li.append(name, value, advice);
     } else {
-      li.textContent = `${item.tag}: ${item.value}`;
+      li.textContent = `${item.tag}: ${formatMetadataValue(item.value)}`;
     }
 
     el.appendChild(li);
   }
+}
+
+function formatMetadataValue(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
 }
 
 function gradeClass(grade) {
@@ -234,6 +250,9 @@ async function refreshServerStats() {
     const res = await fetch("/stats");
     if (!res.ok) return;
     const data = await res.json();
+    if (Number.isFinite(data.max_upload_mb) && maxUploadMb) {
+      maxUploadMb.textContent = String(data.max_upload_mb);
+    }
     serverStats.querySelector("p").textContent =
       `Total: ${data.total} | Success: ${data.successful} | Failed: ${data.failed}`;
   } catch (_error) {
@@ -305,7 +324,7 @@ form.addEventListener("submit", async (event) => {
   } catch (err) {
     showStatus(err.message, true);
   } finally {
-    btn.disabled = false;
+    updateSubmitState();
   }
 });
 
@@ -315,5 +334,6 @@ fileInput.addEventListener("change", () => {
 });
 
 clearBtn.addEventListener("click", resetScan);
+updateSubmitState();
 refreshHistory();
 refreshServerStats();

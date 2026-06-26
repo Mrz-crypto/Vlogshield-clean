@@ -29,7 +29,7 @@
         <div class="panel-heading">
           <div>
             <h2>Scan Image</h2>
-            <p>JPG, PNG, TIFF, HEIC, or WebP up to 16 MB.</p>
+            <p>JPG, PNG, TIFF, HEIC, or WebP up to <span id="maxUploadMb">16</span> MB.</p>
           </div>
           <span class="status-pill" id="modePill">Ready</span>
         </div>
@@ -40,13 +40,13 @@
           <span class="drop-title">Drop an image here</span>
           <span class="drop-copy">or choose one from your device</span>
         </label>
-        <input class="file-input" type="file" id="file" name="file" accept=".jpg,.jpeg,.png,.tiff,.tif,.heic,.webp,image/*" required>
+        <input class="file-input" type="file" id="file" name="file" accept=".jpg,.jpeg,.png,.tiff,.tif,.heic,.webp,image/*" aria-describedby="fileMeta status" required>
 
         <p id="fileMeta" class="file-meta" hidden></p>
         <p id="status" class="status-message" role="status" aria-live="polite" hidden></p>
 
         <div class="actions">
-          <button type="submit" id="btn">Scan image</button>
+          <button type="submit" id="btn" disabled>Scan image</button>
           <button type="button" id="clearBtn" class="secondary">Clear</button>
         </div>
       </form>
