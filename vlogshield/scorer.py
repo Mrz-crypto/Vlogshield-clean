@@ -7,12 +7,12 @@ from flask import jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
 try:
-    from .app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES
+    from .app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES, validate_image
 except ImportError:
     try:
-        from __main__ import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES
+        from __main__ import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES, validate_image
     except ImportError:
-        from app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES
+        from app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES, validate_image
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ def score_image(path):
             name, points, severity, advice = RISKS[tag]
             risks.append({
                 "name": name,
-                "value": f": {value}",
+                "value": str(value),
                 "severity": severity,
                 "advice": advice,
             })
@@ -147,6 +147,7 @@ def scan():
 
     try:
         file.save(path)
+        validate_image(path)
         result = score_image(str(path))
         request_count["successful"] += 1
         
@@ -163,10 +164,14 @@ def scan():
 
         logger.info(f"Image scan completed: {file.filename} - Score: {result['score']}")
         return jsonify(result)
+    except ValueError as e:
+        request_count["failed"] += 1
+        logger.warning(f"Upload validation failed for {file.filename}: {e}")
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         request_count["failed"] += 1
         logger.error(f"Processing failed for {file.filename}: {str(e)}")
-        return jsonify({"error": f"Processing failed: {e}"}), 500
+        return jsonify({"error": "Processing failed"}), 500
     finally:
         path.unlink(missing_ok=True)
 

@@ -1,10 +1,10 @@
+from datetime import datetime, timezone
 import logging
 import os
 from pathlib import Path
-from datetime import datetime, timezone
 
 from flask import Flask, jsonify, render_template, request
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from PIL.ExifTags import GPSTAGS, TAGS
 
 # Configure logging for production monitoring
@@ -32,8 +32,31 @@ SEVERITY = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 request_count = {"total": 0, "successful": 0, "failed": 0}
 
 
-def _decode_bytes(value):
-    return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
+def normalize_metadata_value(value):
+    """Convert EXIF values into JSON-safe primitives."""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, dict):
+        return {
+            _normalize_metadata_key(key): normalize_metadata_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [normalize_metadata_value(item) for item in value]
+    if hasattr(value, "numerator") and hasattr(value, "denominator"):
+        try:
+            return float(value)
+        except (TypeError, ZeroDivisionError):
+            return str(value)
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _normalize_metadata_key(value):
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
 
 
 def _json_error(message, status_code):
@@ -43,6 +66,14 @@ def _json_error(message, status_code):
 
 def _uptime_seconds():
     return round((datetime.now(timezone.utc) - STARTED_AT).total_seconds(), 2)
+
+
+def validate_image(path):
+    try:
+        with Image.open(path) as image:
+            image.verify()
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise ValueError("Uploaded file is not a readable image.") from exc
 
 
 def extract_exif(path):
@@ -57,9 +88,12 @@ def extract_exif(path):
     for tag_id, value in raw.items():
         name = TAGS.get(tag_id, str(tag_id))
         if name == "GPSInfo":
-            out["GPS"] = {GPSTAGS.get(k, str(k)): v for k, v in value.items()}
+            out["GPS"] = {
+                GPSTAGS.get(k, str(k)): normalize_metadata_value(v)
+                for k, v in value.items()
+            }
         else:
-            out[name] = _decode_bytes(value)
+            out[name] = normalize_metadata_value(value)
     return out
 
 
@@ -86,6 +120,7 @@ def get_stats():
     return jsonify({
         **request_count,
         "uptime_seconds": _uptime_seconds(),
+        "max_upload_mb": round(MAX_UPLOAD_BYTES / (1024 * 1024)),
         "success_rate": round(request_count["successful"] / max(request_count["total"], 1), 3),
     }), 200
 
