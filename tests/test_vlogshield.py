@@ -1,0 +1,76 @@
+import io
+import unittest
+
+from PIL import Image
+
+from vlogshield.app import app, normalize_metadata_value
+
+
+def make_png_bytes():
+    buffer = io.BytesIO()
+    Image.new("RGB", (4, 4), color=(30, 80, 120)).save(buffer, format="PNG")
+    buffer.seek(0)
+    return buffer
+
+
+class VlogShieldApiTests(unittest.TestCase):
+    def setUp(self):
+        app.config["TESTING"] = True
+        self.client = app.test_client()
+
+    def test_health_includes_runtime_details(self):
+        response = self.client.get("/health")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["status"], "healthy")
+        self.assertIn("uptime_seconds", payload)
+        self.assertIn("max_upload_mb", payload)
+
+    def test_scan_rejects_unsupported_extension(self):
+        response = self.client.post(
+            "/scan",
+            data={"file": (io.BytesIO(b"not an image"), "notes.txt")},
+            content_type="multipart/form-data",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "File type not supported")
+
+    def test_scan_rejects_unreadable_image(self):
+        response = self.client.post(
+            "/scan",
+            data={"file": (io.BytesIO(b"not an image"), "fake.jpg")},
+            content_type="multipart/form-data",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "Uploaded file is not a readable image.")
+
+    def test_scan_accepts_clean_png(self):
+        response = self.client.post(
+            "/scan",
+            data={"file": (make_png_bytes(), "clean.png")},
+            content_type="multipart/form-data",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["score"], 0)
+        self.assertEqual(payload["grade"], "Safe")
+        self.assertEqual(payload["summary"]["top_severity"], "NONE")
+
+    def test_metadata_normalization_handles_nested_values(self):
+        value = {
+            b"author": (b"Ada", 2, None),
+            "gps": {"lat": [1, 2, 3]},
+        }
+
+        self.assertEqual(
+            normalize_metadata_value(value),
+            {"author": ["Ada", 2, None], "gps": {"lat": [1, 2, 3]}},
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
