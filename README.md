@@ -53,6 +53,7 @@ gunicorn --bind 0.0.0.0:5000 wsgi:app
 - **GET** `/stats` - Application statistics
 
 The `/health` endpoint includes uptime and upload-limit details. The `/stats` endpoint includes total, successful, failed, and success-rate counters.
+Both endpoints also report the configured upload limit so UI and monitoring checks can confirm runtime settings.
 
 ## Usage
 
@@ -77,10 +78,21 @@ The `/health` endpoint includes uptime and upload-limit details. The `/stats` en
 
 - **Privacy Scoring** - Automatic risk assessment based on metadata
 - **Detailed Analysis** - Breakdown of all detected metadata
+- **Image Validation** - Rejects unsupported extensions and unreadable image uploads
 - **Scan History** - Track recent scans
 - **Production Ready** - Health checks and request statistics
 - **File Size Limit** - Max 16MB per file
 - **Error Handling** - Robust error handling with logging
+
+## Testing
+
+Run the backend tests from the project root:
+
+```bash
+python -m unittest discover
+```
+
+The tests cover health checks, upload validation, clean-image scans, and metadata normalization.
 
 ## Configuration
 
