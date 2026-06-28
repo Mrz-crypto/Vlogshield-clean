@@ -54,6 +54,7 @@ gunicorn --bind 0.0.0.0:5000 wsgi:app
 
 The `/health` endpoint includes uptime and upload-limit details. The `/stats` endpoint includes total, successful, failed, and success-rate counters.
 Both endpoints also report the configured upload limit so UI and monitoring checks can confirm runtime settings.
+Responses include baseline browser security headers such as `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and a restrictive `Permissions-Policy`.
 
 ## Usage
 
@@ -79,10 +80,17 @@ Both endpoints also report the configured upload limit so UI and monitoring chec
 - **Privacy Scoring** - Automatic risk assessment based on metadata
 - **Detailed Analysis** - Breakdown of all detected metadata
 - **Image Validation** - Rejects unsupported extensions and unreadable image uploads
-- **Scan History** - Track recent scans
+- **Privacy-Safe Scan History** - Track recent scans without storing original upload filenames
 - **Production Ready** - Health checks and request statistics
 - **File Size Limit** - Max 16MB per file
 - **Error Handling** - Robust error handling with logging
+
+## Privacy Notes
+
+- Uploaded images are saved only long enough to validate and scan them.
+- Temporary upload files are deleted after processing.
+- Scan history stores file type, score, grade, risk count, timestamp, and an internal scan id.
+- Original uploaded filenames are not stored in scan history or normal scan-complete logs.
 
 ## Testing
 
@@ -92,7 +100,7 @@ Run the backend tests from the project root:
 python -m unittest discover
 ```
 
-The tests cover health checks, upload validation, clean-image scans, and metadata normalization.
+The tests cover health checks, security headers, upload validation, clean-image scans, privacy-safe history, and metadata normalization.
 
 ## Configuration
 
