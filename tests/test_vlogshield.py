@@ -4,6 +4,7 @@ import unittest
 from PIL import Image
 
 from vlogshield.app import app, normalize_metadata_value
+from vlogshield.scorer import scan_history
 
 
 def make_png_bytes():
@@ -17,6 +18,7 @@ class VlogShieldApiTests(unittest.TestCase):
     def setUp(self):
         app.config["TESTING"] = True
         self.client = app.test_client()
+        scan_history.clear()
 
     def test_health_includes_runtime_details(self):
         response = self.client.get("/health")
@@ -70,6 +72,22 @@ class VlogShieldApiTests(unittest.TestCase):
         self.assertEqual(payload["score"], 0)
         self.assertEqual(payload["grade"], "Safe")
         self.assertEqual(payload["summary"]["top_severity"], "NONE")
+
+    def test_history_does_not_store_original_filename(self):
+        response = self.client.post(
+            "/scan",
+            data={"file": (make_png_bytes(), "family-trip.png")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 200)
+
+        history_response = self.client.get("/history")
+        history = history_response.get_json()["scans"]
+
+        self.assertEqual(len(history), 1)
+        self.assertNotIn("filename", history[0])
+        self.assertEqual(history[0]["file_type"], "png")
+        self.assertIn("scan_id", history[0])
 
     def test_metadata_normalization_handles_nested_values(self):
         value = {

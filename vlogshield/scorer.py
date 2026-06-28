@@ -118,6 +118,18 @@ def file_size(file):
     return size
 
 
+def history_entry(original_name, result):
+    suffix = Path(original_name).suffix.lower().lstrip(".") or "image"
+    return {
+        "scan_id": uuid.uuid4().hex[:12],
+        "file_type": suffix,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "score": result["score"],
+        "grade": result["grade"],
+        "risk_count": len(result["risks"]),
+    }
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -152,25 +164,19 @@ def scan():
         request_count["successful"] += 1
         
         # Log scan to history, keeping only the most recent entries.
-        scan_history.append({
-            "filename": original_name,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "score": result["score"],
-            "grade": result["grade"],
-            "risk_count": len(result["risks"]),
-        })
+        scan_history.append(history_entry(original_name, result))
         if len(scan_history) > MAX_HISTORY:
             del scan_history[:-MAX_HISTORY]
 
-        logger.info(f"Image scan completed: {file.filename} - Score: {result['score']}")
+        logger.info(f"Image scan completed - Score: {result['score']}")
         return jsonify(result)
     except ValueError as e:
         request_count["failed"] += 1
-        logger.warning(f"Upload validation failed for {file.filename}: {e}")
+        logger.warning(f"Upload validation failed: {e}")
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         request_count["failed"] += 1
-        logger.error(f"Processing failed for {file.filename}: {str(e)}")
+        logger.error(f"Processing failed: {str(e)}")
         return jsonify({"error": "Processing failed"}), 500
     finally:
         path.unlink(missing_ok=True)
