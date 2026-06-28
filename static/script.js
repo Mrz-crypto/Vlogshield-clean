@@ -19,7 +19,7 @@ const analytics = {
   averageScore: 0
 };
 
-const MAX_FILE_SIZE = 16;
+let maxFileSizeMb = 16;
 const ALLOWED_EXTENSIONS = ["jpg", "jpeg", "png", "tiff", "tif", "heic", "webp"];
 
 function setMode(text, className = "") {
@@ -51,8 +51,8 @@ function formatFileSize(bytes) {
 }
 
 function validateFile(file) {
-  if (file.size > MAX_FILE_SIZE * 1024 * 1024) {
-    return `File size (${formatFileSize(file.size)}) exceeds maximum allowed size (${MAX_FILE_SIZE} MB).`;
+  if (file.size > maxFileSizeMb * 1024 * 1024) {
+    return `File size (${formatFileSize(file.size)}) exceeds maximum allowed size (${maxFileSizeMb} MB).`;
   }
 
   const extension = file.name.split(".").pop().toLowerCase();
@@ -226,7 +226,9 @@ function renderHistory(items) {
     const li = document.createElement("li");
     const label = document.createElement("span");
     const score = document.createElement("span");
-    label.textContent = item.filename || "Uploaded image";
+    const fileType = item.file_type ? item.file_type.toUpperCase() : "IMAGE";
+    const riskText = item.risk_count === 1 ? "1 risk" : `${item.risk_count || 0} risks`;
+    label.textContent = `${fileType} scan - ${item.grade || "Complete"} - ${riskText}`;
     score.className = "history-score";
     score.textContent = `${item.score}/100`;
     li.append(label, score);
@@ -251,10 +253,12 @@ async function refreshServerStats() {
     if (!res.ok) return;
     const data = await res.json();
     if (Number.isFinite(data.max_upload_mb) && maxUploadMb) {
+      maxFileSizeMb = data.max_upload_mb;
       maxUploadMb.textContent = String(data.max_upload_mb);
+      updateSubmitState();
     }
     serverStats.querySelector("p").textContent =
-      `Total: ${data.total} | Success: ${data.successful} | Failed: ${data.failed}`;
+      `Total: ${data.total} | Success: ${data.successful} | Failed: ${data.failed} | Rate: ${Math.round((data.success_rate || 0) * 100)}%`;
   } catch (_error) {
     serverStats.querySelector("p").textContent = "Stats unavailable.";
   }
