@@ -27,6 +27,17 @@ class VlogShieldApiTests(unittest.TestCase):
         self.assertIn("uptime_seconds", payload)
         self.assertIn("max_upload_mb", payload)
 
+    def test_responses_include_security_headers(self):
+        response = self.client.get("/health")
+
+        self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
+        self.assertEqual(response.headers["X-Frame-Options"], "DENY")
+        self.assertEqual(response.headers["Referrer-Policy"], "same-origin")
+        self.assertEqual(
+            response.headers["Permissions-Policy"],
+            "geolocation=(), camera=(), microphone=()",
+        )
+
     def test_scan_rejects_unsupported_extension(self):
         response = self.client.post(
             "/scan",

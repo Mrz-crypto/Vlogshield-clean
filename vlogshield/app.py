@@ -103,6 +103,15 @@ def count_request():
         request_count["total"] += 1
 
 
+@app.after_request
+def add_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault("Permissions-Policy", "geolocation=(), camera=(), microphone=()")
+    return response
+
+
 @app.route("/health", methods=["GET"])
 def health_check():
     """Health check endpoint for monitoring."""
