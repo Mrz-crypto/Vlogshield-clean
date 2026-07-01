@@ -1,24 +1,18 @@
-import uuid
 from pathlib import Path
-from datetime import datetime, timezone
 import logging
 
 from flask import jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
 try:
-    from .app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES, validate_image
+    from .app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES, validate_image, scan_store
 except ImportError:
     try:
-        from __main__ import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES, validate_image
+        from __main__ import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES, validate_image, scan_store
     except ImportError:
-        from app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES, validate_image
+        from app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES, validate_image, scan_store
 
 logger = logging.getLogger(__name__)
-
-# Scan history for analytics (bounded to avoid unbounded memory growth)
-MAX_HISTORY = 500
-scan_history = []
 
 # tag -> (name, points, severity, advice)
 RISKS = {
@@ -118,18 +112,6 @@ def file_size(file):
     return size
 
 
-def history_entry(original_name, result):
-    suffix = Path(original_name).suffix.lower().lstrip(".") or "image"
-    return {
-        "scan_id": uuid.uuid4().hex[:12],
-        "file_type": suffix,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "score": result["score"],
-        "grade": result["grade"],
-        "risk_count": len(result["risks"]),
-    }
-
-
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -155,7 +137,7 @@ def scan():
 
     original_name = secure_filename(file.filename) or "upload"
     ext = Path(original_name).suffix.lower().lstrip(".")
-    path = UPLOAD_DIR / f"{uuid.uuid4().hex}.{ext}"
+    path = UPLOAD_DIR / f"{uuid_token()}.{ext}"
 
     try:
         file.save(path)
@@ -163,10 +145,8 @@ def scan():
         result = score_image(str(path))
         request_count["successful"] += 1
         
-        # Log scan to history, keeping only the most recent entries.
-        scan_history.append(history_entry(original_name, result))
-        if len(scan_history) > MAX_HISTORY:
-            del scan_history[:-MAX_HISTORY]
+        file_type = Path(original_name).suffix.lower().lstrip(".") or "image"
+        scan_store.add_scan(file_type, result)
 
         logger.info(f"Image scan completed - Score: {result['score']}")
         return jsonify(result)
@@ -184,4 +164,10 @@ def scan():
 @app.route("/history", methods=["GET"])
 def get_history():
     """Return recent scan history."""
-    return jsonify({"scans": scan_history[-50:]}), 200
+    return jsonify({"scans": scan_store.recent_scans(50)}), 200
+
+
+def uuid_token():
+    import uuid
+
+    return uuid.uuid4().hex

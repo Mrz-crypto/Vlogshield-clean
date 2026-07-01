@@ -7,6 +7,11 @@ from flask import Flask, jsonify, render_template, request
 from PIL import Image, UnidentifiedImageError
 from PIL.ExifTags import GPSTAGS, TAGS
 
+try:
+    from .storage import create_scan_store
+except ImportError:
+    from storage import create_scan_store
+
 # Configure logging for production monitoring
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -30,6 +35,7 @@ SEVERITY = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 
 # Request counter for analytics
 request_count = {"total": 0, "successful": 0, "failed": 0}
+scan_store = create_scan_store()
 
 
 def normalize_metadata_value(value):
@@ -128,6 +134,7 @@ def get_stats():
     logger.info(f"Stats requested - Total: {request_count['total']}, Success: {request_count['successful']}, Failed: {request_count['failed']}")
     return jsonify({
         **request_count,
+        **scan_store.summary(),
         "uptime_seconds": _uptime_seconds(),
         "max_upload_mb": round(MAX_UPLOAD_BYTES / (1024 * 1024)),
         "success_rate": round(request_count["successful"] / max(request_count["total"], 1), 3),
