@@ -27,6 +27,7 @@ class VlogShieldApiTests(unittest.TestCase):
         self.assertEqual(payload["status"], "healthy")
         self.assertIn("uptime_seconds", payload)
         self.assertIn("max_upload_mb", payload)
+        self.assertIn("scan_rate_limit", payload)
 
     def test_responses_include_security_headers(self):
         response = self.client.get("/health")

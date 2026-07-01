@@ -5,12 +5,12 @@ from flask import jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
 try:
-    from .app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES, validate_image, scan_store
+    from .app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES, validate_image, scan_store, scan_rate_limit
 except ImportError:
     try:
-        from __main__ import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES, validate_image, scan_store
+        from __main__ import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES, validate_image, scan_store, scan_rate_limit
     except ImportError:
-        from app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES, validate_image, scan_store
+        from app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES, validate_image, scan_store, scan_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +118,7 @@ def index():
 
 
 @app.route("/scan", methods=["POST"])
+@scan_rate_limit
 def scan():
     file = request.files.get("file")
     if not file or not file.filename:

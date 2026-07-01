@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parent.parent
 UPLOAD_DIR = Path(__file__).resolve().parent / "uploads"
 ALLOWED = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".heic", ".webp"}
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "16")) * 1024 * 1024
+SCAN_RATE_LIMIT = os.getenv("SCAN_RATE_LIMIT", "10 per minute")
+RATE_LIMIT_STORAGE_URI = os.getenv("RATE_LIMIT_STORAGE_URI", "memory://")
 STARTED_AT = datetime.now(timezone.utc)
 
 app = Flask(
@@ -36,6 +38,31 @@ SEVERITY = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 # Request counter for analytics
 request_count = {"total": 0, "successful": 0, "failed": 0}
 scan_store = create_scan_store()
+
+
+def configure_limiter():
+    try:
+        from flask_limiter import Limiter
+        from flask_limiter.util import get_remote_address
+    except ImportError:
+        logger.warning("Flask-Limiter is unavailable; scan rate limiting is disabled.")
+        return None
+
+    return Limiter(
+        get_remote_address,
+        app=app,
+        default_limits=[],
+        storage_uri=RATE_LIMIT_STORAGE_URI,
+    )
+
+
+limiter = configure_limiter()
+
+
+def scan_rate_limit(route):
+    if limiter is None or not SCAN_RATE_LIMIT:
+        return route
+    return limiter.limit(SCAN_RATE_LIMIT)(route)
 
 
 def normalize_metadata_value(value):
@@ -126,6 +153,7 @@ def health_check():
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "uptime_seconds": _uptime_seconds(),
         "max_upload_mb": round(MAX_UPLOAD_BYTES / (1024 * 1024)),
+        "scan_rate_limit": SCAN_RATE_LIMIT or "disabled",
     }), 200
 
 @app.route("/stats", methods=["GET"])
