@@ -6,6 +6,7 @@ werkzeug==3.0.1
 
 # Image and metadata processing
 Pillow==11.2.1
+mysql-connector-python==9.3.0
 
 # Local configuration, logging, and utilities
 python-dotenv==1.0.0

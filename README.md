@@ -35,6 +35,7 @@ Optional runtime settings:
 
 ```bash
 set MAX_UPLOAD_MB=16
+set SCAN_RATE_LIMIT=10 per minute
 set FLASK_RUN_HOST=0.0.0.0
 set FLASK_RUN_PORT=5000
 ```
@@ -81,6 +82,8 @@ Responses include baseline browser security headers such as `X-Content-Type-Opti
 - **Detailed Analysis** - Breakdown of all detected metadata
 - **Image Validation** - Rejects unsupported extensions and unreadable image uploads
 - **Privacy-Safe Scan History** - Track recent scans without storing original upload filenames
+- **Optional MySQL Storage** - Persist privacy-safe scan history when database settings are configured
+- **Scan Rate Limiting** - Throttle scan uploads with a configurable limit
 - **Production Ready** - Health checks and request statistics
 - **File Size Limit** - Max 16MB per file
 - **Error Handling** - Robust error handling with logging
@@ -102,6 +105,37 @@ python -m unittest discover
 
 The tests cover health checks, security headers, upload validation, clean-image scans, privacy-safe history, and metadata normalization.
 
+GitHub Actions runs the same test command on pushes and pull requests to `main`.
+
+## MySQL Scan History
+
+By default, scan history is stored in memory and resets when the app restarts. Configure MySQL to persist privacy-safe scan history:
+
+```sql
+CREATE DATABASE vlogshield CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'vlogshield_user'@'localhost' IDENTIFIED BY 'change_me';
+GRANT SELECT, INSERT, DELETE, CREATE ON vlogshield.* TO 'vlogshield_user'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+Then set either a single URL:
+
+```bash
+set DATABASE_URL=mysql://vlogshield_user:change_me@localhost:3306/vlogshield
+```
+
+Or individual settings:
+
+```bash
+set MYSQL_HOST=localhost
+set MYSQL_PORT=3306
+set MYSQL_DATABASE=vlogshield
+set MYSQL_USER=vlogshield_user
+set MYSQL_PASSWORD=change_me
+```
+
+The app creates the `scans` table automatically when MySQL storage is available.
+
 ## Configuration
 
 Environment variables (in `.env`):
@@ -111,5 +145,9 @@ Environment variables (in `.env`):
 - `FLASK_RUN_HOST` - Host used by `python wsgi.py`
 - `FLASK_RUN_PORT` - Port used by `python wsgi.py`
 - `MAX_UPLOAD_MB` - Maximum accepted upload size in megabytes
+- `SCAN_RATE_LIMIT` - Upload throttle for `/scan`, for example `10 per minute`; set blank to disable
+- `RATE_LIMIT_STORAGE_URI` - Flask-Limiter storage URI, default `memory://`
+- `DATABASE_URL` - Optional MySQL connection URL for persistent scan history
+- `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD` - Optional MySQL settings when `DATABASE_URL` is not used
 
 Use `.env.example` as the template for local configuration. The real `.env` file is ignored by Git.
