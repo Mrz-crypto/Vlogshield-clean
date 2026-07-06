@@ -53,8 +53,8 @@ gunicorn --bind 0.0.0.0:5000 wsgi:app
 - **GET** `/health` - Health check endpoint
 - **GET** `/stats` - Application statistics
 
-The `/health` endpoint includes uptime and upload-limit details. The `/stats` endpoint includes total, successful, failed, and success-rate counters.
-Both endpoints also report the configured upload limit so UI and monitoring checks can confirm runtime settings.
+The `/health` endpoint includes uptime, upload-limit, rate-limit, and storage-backend details. The `/stats` endpoint includes total, successful, failed, success-rate, stored-scan, average-score, and high-risk counters.
+Both endpoints also report the configured upload limit and active storage backend so UI and monitoring checks can confirm runtime settings.
 Responses include baseline browser security headers such as `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and a restrictive `Permissions-Policy`.
 
 ## Usage

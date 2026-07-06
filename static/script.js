@@ -236,6 +236,20 @@ function renderHistory(items) {
   }
 }
 
+function formatPercent(value) {
+  return `${Math.round((value || 0) * 100)}%`;
+}
+
+function renderServerStats(data) {
+  const backend = data.storage_backend || "memory";
+  const average = Number.isFinite(data.average_score) ? Number(data.average_score).toFixed(1) : "0.0";
+  const stored = data.stored_scans || 0;
+  const highRisk = data.high_risk_scans || 0;
+
+  serverStats.querySelector("p").textContent =
+    `Backend: ${backend} | Stored: ${stored} | Avg: ${average} | High risk: ${highRisk} | Success: ${formatPercent(data.success_rate)}`;
+}
+
 async function refreshHistory() {
   try {
     const res = await fetch("/history");
@@ -257,8 +271,7 @@ async function refreshServerStats() {
       maxUploadMb.textContent = String(data.max_upload_mb);
       updateSubmitState();
     }
-    serverStats.querySelector("p").textContent =
-      `Total: ${data.total} | Success: ${data.successful} | Failed: ${data.failed} | Rate: ${Math.round((data.success_rate || 0) * 100)}%`;
+    renderServerStats(data);
   } catch (_error) {
     serverStats.querySelector("p").textContent = "Stats unavailable.";
   }
