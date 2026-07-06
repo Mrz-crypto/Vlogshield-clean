@@ -32,6 +32,17 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(config["password"], "secret")
         self.assertEqual(config["database"], "vlogshield")
 
+    def test_invalid_mysql_port_raises_clear_error(self):
+        env = {
+            "MYSQL_HOST": "localhost",
+            "MYSQL_PORT": "not-a-number",
+            "MYSQL_DATABASE": "vlogshield",
+            "MYSQL_USER": "scan_user",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            with self.assertRaisesRegex(ValueError, "port must be a number"):
+                mysql_config_from_env()
+
 
 if __name__ == "__main__":
     unittest.main()

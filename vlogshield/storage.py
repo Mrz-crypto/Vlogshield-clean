@@ -33,6 +33,8 @@ class ScanRecord:
 
 
 class ScanStore(Protocol):
+    name: str
+
     def add_scan(self, file_type: str, result: dict) -> dict:
         ...
 
@@ -47,6 +49,8 @@ class ScanStore(Protocol):
 
 
 class MemoryScanStore:
+    name = "memory"
+
     def __init__(self, max_history: int = 500):
         self._records: deque[ScanRecord] = deque(maxlen=max_history)
 
@@ -74,6 +78,8 @@ class MemoryScanStore:
 
 
 class MySQLScanStore:
+    name = "mysql"
+
     def __init__(self, config: dict):
         try:
             import mysql.connector
@@ -197,12 +203,15 @@ def mysql_config_from_env() -> dict | None:
         parsed = urlparse(database_url)
         if parsed.scheme not in {"mysql", "mysql+pymysql", "mysql+mysqlconnector"}:
             return None
+        database = parsed.path.lstrip("/")
+        if not parsed.username or not database:
+            raise ValueError("DATABASE_URL must include a username and database name.")
         return {
             "host": parsed.hostname or "localhost",
             "port": parsed.port or 3306,
             "user": parsed.username,
             "password": parsed.password or "",
-            "database": parsed.path.lstrip("/"),
+            "database": database,
         }
 
     database = os.getenv("MYSQL_DATABASE")
@@ -212,18 +221,28 @@ def mysql_config_from_env() -> dict | None:
 
     return {
         "host": os.getenv("MYSQL_HOST", "localhost"),
-        "port": int(os.getenv("MYSQL_PORT", "3306")),
+        "port": parse_port(os.getenv("MYSQL_PORT", "3306")),
         "user": user,
         "password": os.getenv("MYSQL_PASSWORD", ""),
         "database": database,
     }
 
 
-def create_scan_store() -> ScanStore:
-    config = mysql_config_from_env()
-    if not config:
-        return MemoryScanStore()
+def parse_port(value: str) -> int:
     try:
+        port = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("MySQL port must be a number.") from exc
+    if port < 1 or port > 65535:
+        raise ValueError("MySQL port must be between 1 and 65535.")
+    return port
+
+
+def create_scan_store() -> ScanStore:
+    try:
+        config = mysql_config_from_env()
+        if not config:
+            return MemoryScanStore()
         return MySQLScanStore(config)
     except Exception as exc:
         logger.warning("MySQL scan storage unavailable; using in-memory history: %s", exc)

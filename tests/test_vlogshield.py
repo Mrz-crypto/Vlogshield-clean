@@ -28,6 +28,7 @@ class VlogShieldApiTests(unittest.TestCase):
         self.assertIn("uptime_seconds", payload)
         self.assertIn("max_upload_mb", payload)
         self.assertIn("scan_rate_limit", payload)
+        self.assertEqual(payload["storage_backend"], "memory")
 
     def test_responses_include_security_headers(self):
         response = self.client.get("/health")
@@ -101,6 +102,7 @@ class VlogShieldApiTests(unittest.TestCase):
         self.assertEqual(payload["stored_scans"], 1)
         self.assertIn("average_score", payload)
         self.assertIn("high_risk_scans", payload)
+        self.assertEqual(payload["storage_backend"], "memory")
 
     def test_metadata_normalization_handles_nested_values(self):
         value = {

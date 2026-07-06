@@ -154,6 +154,7 @@ def health_check():
         "uptime_seconds": _uptime_seconds(),
         "max_upload_mb": round(MAX_UPLOAD_BYTES / (1024 * 1024)),
         "scan_rate_limit": SCAN_RATE_LIMIT or "disabled",
+        "storage_backend": scan_store.name,
     }), 200
 
 @app.route("/stats", methods=["GET"])
@@ -165,6 +166,7 @@ def get_stats():
         **scan_store.summary(),
         "uptime_seconds": _uptime_seconds(),
         "max_upload_mb": round(MAX_UPLOAD_BYTES / (1024 * 1024)),
+        "storage_backend": scan_store.name,
         "success_rate": round(request_count["successful"] / max(request_count["total"], 1), 3),
     }), 200
 
