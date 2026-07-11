@@ -111,6 +111,16 @@ GitHub Actions runs the same test command on pushes and pull requests to `main`.
 
 By default, scan history is stored in memory and resets when the app restarts. Configure MySQL to persist privacy-safe scan history:
 
+Use the setup helper from PowerShell:
+
+```powershell
+.\scripts\setup_mysql.ps1
+```
+
+It prompts for the MySQL root password and the app-user password locally, creates the database/user, grants the app permissions, and updates `.env`.
+
+Or run the SQL manually:
+
 ```sql
 CREATE DATABASE vlogshield CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER 'vlogshield_user'@'localhost' IDENTIFIED BY 'change_me';
