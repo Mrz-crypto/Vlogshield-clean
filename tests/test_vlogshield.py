@@ -1,9 +1,11 @@
 import io
+from unittest.mock import patch
 import unittest
 
 from PIL import Image
 
 from vlogshield.app import app, normalize_metadata_value, scan_store
+from vlogshield.scorer import format_metadata_display, grade_scan
 
 
 def make_png_bytes():
@@ -73,6 +75,8 @@ class VlogShieldApiTests(unittest.TestCase):
         self.assertEqual(payload["score"], 0)
         self.assertEqual(payload["grade"], "Safe")
         self.assertEqual(payload["summary"]["top_severity"], "NONE")
+        self.assertIn("visual_scan", payload)
+        self.assertEqual(payload["visual_scan"]["risk_count"], 0)
 
     def test_history_does_not_store_original_filename(self):
         response = self.client.post(
@@ -114,6 +118,54 @@ class VlogShieldApiTests(unittest.TestCase):
             normalize_metadata_value(value),
             {"author": ["Ada", 2, None], "gps": {"lat": [1, 2, 3]}},
         )
+
+    def test_metadata_display_hides_control_character_noise(self):
+        self.assertEqual(
+            format_metadata_display("\x00\x01\x02\x03"),
+            "Unreadable embedded text",
+        )
+        self.assertEqual(format_metadata_display("Camera note"), "Camera note")
+
+    def test_medium_metadata_does_not_escalate_to_high_risk(self):
+        risks = [
+            {"severity": "MEDIUM"},
+            {"severity": "LOW"},
+            {"severity": "LOW"},
+            {"severity": "LOW"},
+        ]
+
+        self.assertEqual(grade_scan(65, risks), "Medium risk")
+
+    def test_critical_metadata_stays_high_risk(self):
+        self.assertEqual(grade_scan(45, [{"severity": "CRITICAL"}]), "High risk")
+
+    def test_disabled_visual_scan_does_not_return_visual_risks(self):
+        fake_visual = {
+            "available": False,
+            "score": 30,
+            "redacted_image": "data:image/jpeg;base64,abc",
+            "risks": [
+                {
+                    "name": "Face or person identity",
+                    "value": "82% confidence",
+                    "severity": "MEDIUM",
+                    "advice": "Review this visual finding.",
+                    "source": "visual",
+                }
+            ],
+        }
+
+        with patch("vlogshield.scorer.analyze_visual_privacy", return_value=fake_visual):
+            response = self.client.post(
+                "/scan",
+                data={"file": (make_png_bytes(), "clean.png")},
+                content_type="multipart/form-data",
+            )
+
+        payload = response.get_json()
+        self.assertEqual(payload["visual_scan"]["available"], False)
+        self.assertEqual(payload["visual_scan"]["risk_count"], 0)
+        self.assertFalse(any(risk.get("source") == "visual" for risk in payload["risks"]))
 
 
 if __name__ == "__main__":

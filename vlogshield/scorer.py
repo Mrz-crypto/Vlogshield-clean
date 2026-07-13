@@ -1,16 +1,20 @@
 from pathlib import Path
 import logging
+import unicodedata
 
 from flask import jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
 try:
     from .app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES, validate_image, scan_store, scan_rate_limit
+    from .visual_privacy import analyze_visual_privacy
 except ImportError:
     try:
         from __main__ import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES, validate_image, scan_store, scan_rate_limit
+        from visual_privacy import analyze_visual_privacy
     except ImportError:
         from app import app, UPLOAD_DIR, ALLOWED, extract_exif, SKIP, SEVERITY, request_count, MAX_UPLOAD_BYTES, validate_image, scan_store, scan_rate_limit
+        from visual_privacy import analyze_visual_privacy
 
 logger = logging.getLogger(__name__)
 
@@ -37,34 +41,70 @@ RISKS = {
 }
 
 RECOMMENDATIONS = {
-    "CRITICAL": "Strip metadata before sharing and avoid posting the original file.",
-    "HIGH": "Remove identifying fields before publishing this image.",
-    "MEDIUM": "Review this metadata and remove it when posting publicly.",
-    "LOW": "This field is usually low impact, but stripping it is still safer.",
+    "CRITICAL": "Strip metadata and use the redacted copy before sharing.",
+    "HIGH": "Remove identifying fields or visible private details before publishing this image.",
+    "MEDIUM": "Review this finding and use the redacted copy when posting publicly.",
+    "LOW": "This field is usually low impact, but removing it is still safer.",
 }
+
+
+def format_metadata_display(value):
+    text = str(value)
+    cleaned = "".join(
+        char
+        for char in text
+        if char in {"\n", "\r", "\t"} or not unicodedata.category(char).startswith("C")
+    ).strip()
+
+    if not cleaned or cleaned.count("\ufffd") >= 3:
+        return "Unreadable embedded text"
+    return cleaned
 
 
 def build_summary(score, risks):
     if not risks:
         return {
-            "headline": "No sensitive EXIF metadata found.",
+            "headline": "No sensitive metadata or visual privacy risks found.",
             "next_step": "This image looks clean for sharing.",
             "top_severity": "NONE",
         }
 
     top = risks[0]["severity"]
+    visual_count = sum(1 for risk in risks if risk.get("source") == "visual")
+    metadata_count = len(risks) - visual_count
+    parts = []
+    if metadata_count:
+        parts.append(f"{metadata_count} metadata risk{'s' if metadata_count != 1 else ''}")
+    if visual_count:
+        parts.append(f"{visual_count} visual risk{'s' if visual_count != 1 else ''}")
+
     return {
-        "headline": f"{len(risks)} metadata risk{'s' if len(risks) != 1 else ''} found.",
+        "headline": f"{' and '.join(parts)} found.",
         "next_step": RECOMMENDATIONS.get(top, "Review the metadata before sharing."),
         "top_severity": top,
     }
 
 
+def grade_scan(score, risks):
+    severities = {risk["severity"] for risk in risks}
+    if "CRITICAL" in severities:
+        return "High risk"
+    if "HIGH" in severities:
+        return "High risk" if score >= 50 else "Medium risk"
+    if "MEDIUM" in severities:
+        return "Medium risk"
+    if score > 0:
+        return "Low risk"
+    return "Safe"
+
+
 def score_image(path):
     data = extract_exif(path)
+    visual = analyze_visual_privacy(path)
     risks = []
     safe_fields = []
     total_score = 0
+    visual_risks = visual["risks"] if visual["available"] else []
 
     for tag, value in data.items():
         if tag in SKIP:
@@ -73,24 +113,20 @@ def score_image(path):
             name, points, severity, advice = RISKS[tag]
             risks.append({
                 "name": name,
-                "value": str(value),
+                "value": format_metadata_display(value),
                 "severity": severity,
                 "advice": advice,
+                "source": "metadata",
             })
             total_score += points
         else:
             safe_fields.append({"tag": tag, "value": value})
 
+    risks.extend(visual_risks)
+    total_score += visual["score"] if visual["available"] else 0
     risks.sort(key=lambda item: SEVERITY.get(item["severity"], 99))
     score = min(total_score, 100)
-    if score >= 50:
-        grade = "High risk"
-    elif score >= 20:
-        grade = "Medium risk"
-    elif score > 0:
-        grade = "Low risk"
-    else:
-        grade = "Safe"
+    grade = grade_scan(score, risks)
 
     return {
         "score": score,
@@ -98,6 +134,11 @@ def score_image(path):
         "summary": build_summary(score, risks),
         "risks": risks,
         "safe_fields": safe_fields,
+        "visual_scan": {
+            "available": visual["available"],
+            "risk_count": len(visual_risks),
+            "redacted_image": visual["redacted_image"] if visual["available"] else None,
+        },
     }
 
 
@@ -145,7 +186,7 @@ def scan():
         validate_image(path)
         result = score_image(str(path))
         request_count["successful"] += 1
-        
+
         file_type = Path(original_name).suffix.lower().lstrip(".") or "image"
         scan_store.add_scan(file_type, result)
 

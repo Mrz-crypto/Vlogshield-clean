@@ -79,6 +79,12 @@ h2 {
   letter-spacing: 0;
 }
 
+h3 {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+  letter-spacing: 0;
+}
+
 .intro {
   max-width: 42rem;
   margin-bottom: 0;
@@ -353,9 +359,73 @@ button:disabled {
   opacity: 0.62;
 }
 
+.redaction-panel {
+  margin: 18px 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #141820;
+}
+
+.redaction-panel summary {
+  padding: 14px 16px;
+}
+
+.redaction-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 0 16px 12px;
+}
+
+.redaction-heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.redaction-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  min-width: 76px;
+  padding: 0 9px;
+  border: 1px solid rgba(37, 199, 183, 0.62);
+  border-radius: 999px;
+  color: #c4fff7;
+  font-size: 0.76rem;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.redaction-canvas {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 360px;
+  margin: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0f1217;
+  cursor: crosshair;
+  object-fit: contain;
+  touch-action: none;
+}
+
+.redaction-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 16px 16px;
+}
+
 button:focus-visible,
 .drop-zone:focus-within,
-summary:focus-visible {
+summary:focus-visible,
+.redaction-canvas:focus-visible {
   outline: 2px solid var(--teal);
   outline-offset: 3px;
 }
@@ -424,6 +494,32 @@ summary:focus-visible {
   margin-bottom: 6px;
   color: var(--text);
   font-weight: 760;
+}
+
+.auto-redaction {
+  margin-bottom: 24px;
+}
+
+.auto-redaction img {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  object-fit: contain;
+  background: #0f1217;
+}
+
+.download-link {
+  color: var(--teal);
+  font-size: 0.86rem;
+  font-weight: 760;
+  text-decoration: none;
+}
+
+.download-link:hover {
+  text-decoration: underline;
 }
 
 .metadata-list,
@@ -582,6 +678,7 @@ summary {
   }
 
   .panel-heading,
+  .redaction-heading,
   .score-row,
   .section-heading,
   .history-list li {
@@ -594,7 +691,8 @@ summary {
     padding: 22px 16px;
   }
 
-  .actions button {
+  .actions button,
+  .redaction-actions button {
     width: 100%;
   }
 

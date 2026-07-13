@@ -49,6 +49,22 @@
           <button type="submit" id="btn" disabled>Scan image</button>
           <button type="button" id="clearBtn" class="secondary">Clear</button>
         </div>
+
+        <details id="redactionPanel" class="redaction-panel" hidden>
+          <summary>Edit visible redactions</summary>
+          <div class="redaction-heading">
+            <div>
+              <p>Auto-detected areas appear here. Clear, undo, or draw your own boxes before downloading.</p>
+            </div>
+            <span id="redactionCount" class="redaction-count">0 hidden</span>
+          </div>
+          <canvas id="redactionCanvas" class="redaction-canvas" aria-label="Image redaction preview"></canvas>
+          <div class="redaction-actions">
+            <button type="button" id="undoRedactionBtn" class="secondary" disabled>Undo hide</button>
+            <button type="button" id="clearRedactionsBtn" class="secondary" disabled>Clear hides</button>
+            <button type="button" id="downloadRedactedBtn" class="secondary" disabled>Download redacted copy</button>
+          </div>
+        </details>
       </form>
 
       <section id="result" class="result-panel" aria-live="polite" hidden>
@@ -68,6 +84,14 @@
           <p id="summary" class="summary"></p>
           <p id="nextStep" class="next-step"></p>
         </div>
+
+        <section id="autoRedactionWrap" class="auto-redaction" hidden>
+          <div class="section-heading">
+            <h2>Experimental auto-redacted preview</h2>
+            <a id="autoRedactionDownload" class="download-link" href="#" download="vlogshield-auto-redacted.jpg">Download</a>
+          </div>
+          <img id="autoRedactedImage" alt="Automatically blurred sensitive visual areas">
+        </section>
 
         <div class="metadata-section">
           <div class="section-heading">

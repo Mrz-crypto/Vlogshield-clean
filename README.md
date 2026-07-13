@@ -80,6 +80,8 @@ Responses include baseline browser security headers such as `X-Content-Type-Opti
 
 - **Privacy Scoring** - Automatic risk assessment based on metadata
 - **Detailed Analysis** - Breakdown of all detected metadata
+- **Automatic Visual Redaction** - Experimental OpenCV detection is enabled by default for stronger face and possible vehicle-plate matches
+- **Editable Visual Redaction** - Review auto-detected boxes, clear false positives, draw your own boxes, and download a redacted copy
 - **Image Validation** - Rejects unsupported extensions and unreadable image uploads
 - **Privacy-Safe Scan History** - Track recent scans without storing original upload filenames
 - **Optional MySQL Storage** - Persist privacy-safe scan history when database settings are configured
@@ -92,8 +94,11 @@ Responses include baseline browser security headers such as `X-Content-Type-Opti
 
 - Uploaded images are saved only long enough to validate and scan them.
 - Temporary upload files are deleted after processing.
+- Automatic visual redaction returns a blurred preview when visible privacy risks are detected. Set `VISUAL_AUTO_REDACTION=0` to disable it.
+- Editable redaction runs in the browser. Auto-detected boxes can be cleared or changed before exporting a blurred PNG copy.
 - Scan history stores file type, score, grade, risk count, timestamp, and an internal scan id.
 - Original uploaded filenames are not stored in scan history or normal scan-complete logs.
+- Visual detection uses local computer-vision heuristics and should be reviewed before sharing. Set `VISUAL_AUTO_REDACTION=0` to disable automatic visual scanning. The experimental skin/body heuristic is disabled by default; set `VISUAL_BODY_HEURISTIC=1` only if you want to test it.
 
 ## Testing
 
@@ -159,5 +164,7 @@ Environment variables (in `.env`):
 - `RATE_LIMIT_STORAGE_URI` - Flask-Limiter storage URI, default `memory://`
 - `DATABASE_URL` - Optional MySQL connection URL for persistent scan history
 - `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD` - Optional MySQL settings when `DATABASE_URL` is not used
+- `VISUAL_AUTO_REDACTION` - Set to `0` to disable experimental automatic visual blur detection
+- `VISUAL_BODY_HEURISTIC` - Set to `1` to also test experimental skin/body region detection
 
 Use `.env.example` as the template for local configuration. The real `.env` file is ignored by Git.

@@ -11,7 +11,18 @@ const historyList = document.getElementById("historyList");
 const serverStats = document.getElementById("serverStats");
 const imagePreview = document.getElementById("imagePreview");
 const maxUploadMb = document.getElementById("maxUploadMb");
+const redactionPanel = document.getElementById("redactionPanel");
+const redactionCanvas = document.getElementById("redactionCanvas");
+const redactionCount = document.getElementById("redactionCount");
+const undoRedactionBtn = document.getElementById("undoRedactionBtn");
+const clearRedactionsBtn = document.getElementById("clearRedactionsBtn");
+const downloadRedactedBtn = document.getElementById("downloadRedactedBtn");
 let previewUrl = "";
+let redactionImage = null;
+let redactionBoxes = [];
+let draftBox = null;
+let drawingBox = false;
+let canvasScale = 1;
 
 const analytics = {
   totalScans: 0,
@@ -75,6 +86,7 @@ function updateFileMeta() {
     fileMeta.textContent = "";
     setMode("Ready");
     updatePreview(null);
+    resetRedactionTool();
     updateSubmitState();
     return;
   }
@@ -83,6 +95,7 @@ function updateFileMeta() {
   fileMeta.textContent = `${file.name} - ${formatFileSize(file.size)}`;
   setMode("Selected");
   updatePreview(file);
+  loadRedactionImage(file);
   updateSubmitState();
 }
 
@@ -109,11 +122,155 @@ function resetScan() {
   form.reset();
   result.hidden = true;
   hideStatus();
+  resetRedactionTool();
   updateFileMeta();
   setMode("Ready");
 
   const progressFill = document.getElementById("progressFill");
   if (progressFill) progressFill.style.width = "0%";
+}
+
+function resetRedactionTool() {
+  redactionImage = null;
+  redactionBoxes = [];
+  draftBox = null;
+  drawingBox = false;
+  redactionPanel.hidden = true;
+  redactionCanvas.removeAttribute("width");
+  redactionCanvas.removeAttribute("height");
+  updateRedactionControls();
+}
+
+function updateRedactionControls() {
+  const count = redactionBoxes.length;
+  redactionCount.textContent = `${count} hidden`;
+  undoRedactionBtn.disabled = count === 0;
+  clearRedactionsBtn.disabled = count === 0;
+  downloadRedactedBtn.disabled = !redactionImage || count === 0;
+}
+
+function loadRedactionImage(file) {
+  if (!file || !file.type.startsWith("image/")) {
+    resetRedactionTool();
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const image = new Image();
+    image.onload = () => {
+      redactionImage = image;
+      redactionBoxes = [];
+      draftBox = null;
+      redactionPanel.hidden = false;
+      resizeRedactionCanvas();
+      updateRedactionControls();
+    };
+    image.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function resizeRedactionCanvas() {
+  if (!redactionImage) return;
+
+  const maxWidth = redactionPanel.clientWidth || 520;
+  canvasScale = Math.min(1, maxWidth / redactionImage.naturalWidth);
+  redactionCanvas.width = Math.max(1, Math.round(redactionImage.naturalWidth * canvasScale));
+  redactionCanvas.height = Math.max(1, Math.round(redactionImage.naturalHeight * canvasScale));
+  drawRedactionCanvas();
+}
+
+function drawRedactionCanvas() {
+  if (!redactionImage) return;
+
+  const ctx = redactionCanvas.getContext("2d");
+  ctx.clearRect(0, 0, redactionCanvas.width, redactionCanvas.height);
+  ctx.drawImage(redactionImage, 0, 0, redactionCanvas.width, redactionCanvas.height);
+
+  for (const box of redactionBoxes) {
+    paintRedactionBox(ctx, box, false);
+  }
+
+  if (draftBox) {
+    paintRedactionBox(ctx, draftBox, true);
+  }
+}
+
+function paintRedactionBox(ctx, box, isDraft) {
+  const x = Math.min(box.x1, box.x2) * canvasScale;
+  const y = Math.min(box.y1, box.y2) * canvasScale;
+  const width = Math.abs(box.x2 - box.x1) * canvasScale;
+  const height = Math.abs(box.y2 - box.y1) * canvasScale;
+
+  if (width < 2 || height < 2) return;
+
+  ctx.fillStyle = isDraft ? "rgba(244, 183, 64, 0.55)" : "rgba(0, 0, 0, 0.92)";
+  ctx.fillRect(x, y, width, height);
+  ctx.strokeStyle = isDraft ? "#f4b740" : "#25c7b7";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x, y, width, height);
+}
+
+function canvasPoint(event) {
+  const rect = redactionCanvas.getBoundingClientRect();
+  const x = (event.clientX - rect.left) / canvasScale;
+  const y = (event.clientY - rect.top) / canvasScale;
+  return {
+    x: Math.max(0, Math.min(redactionImage.naturalWidth, x)),
+    y: Math.max(0, Math.min(redactionImage.naturalHeight, y))
+  };
+}
+
+function finishDraftBox() {
+  if (!draftBox) return;
+
+  const width = Math.abs(draftBox.x2 - draftBox.x1);
+  const height = Math.abs(draftBox.y2 - draftBox.y1);
+  if (width >= 8 && height >= 8) {
+    redactionBoxes.push(draftBox);
+  }
+
+  draftBox = null;
+  drawingBox = false;
+  updateRedactionControls();
+  drawRedactionCanvas();
+}
+
+function downloadRedactedImage() {
+  if (!redactionImage) return;
+
+  const output = document.createElement("canvas");
+  output.width = redactionImage.naturalWidth;
+  output.height = redactionImage.naturalHeight;
+  const ctx = output.getContext("2d");
+  ctx.drawImage(redactionImage, 0, 0);
+
+  for (const box of redactionBoxes) {
+    const x = Math.max(0, Math.round(Math.min(box.x1, box.x2)));
+    const y = Math.max(0, Math.round(Math.min(box.y1, box.y2)));
+    const width = Math.min(output.width - x, Math.round(Math.abs(box.x2 - box.x1)));
+    const height = Math.min(output.height - y, Math.round(Math.abs(box.y2 - box.y1)));
+    if (width < 2 || height < 2) continue;
+    const imageData = ctx.getImageData(x, y, width, height);
+    const scratch = document.createElement("canvas");
+    scratch.width = width;
+    scratch.height = height;
+    const scratchCtx = scratch.getContext("2d");
+    scratchCtx.putImageData(imageData, 0, 0);
+    ctx.save();
+    ctx.filter = "blur(14px)";
+    ctx.drawImage(scratch, x, y, width, height);
+    ctx.restore();
+    ctx.strokeStyle = "#25c7b7";
+    ctx.lineWidth = Math.max(2, Math.round(output.width / 500));
+    ctx.strokeRect(x, y, width, height);
+  }
+
+  const link = document.createElement("a");
+  link.href = output.toDataURL("image/png");
+  link.download = "vlogshield-redacted.png";
+  link.click();
 }
 
 function clearList(el) {
@@ -136,14 +293,15 @@ function renderEmptyRisk() {
 
 function renderList(el, items, rich) {
   clearList(el);
+  const renderedItems = rich ? groupRiskItems(items) : items;
 
-  for (const item of items) {
+  for (const item of renderedItems) {
     const li = document.createElement("li");
 
     if (rich) {
       li.className = `severity-${item.severity}`;
       const name = document.createElement("strong");
-      name.textContent = item.name;
+      name.textContent = item.source === "visual" ? `${item.name} (visual)` : item.name;
       const value = document.createElement("span");
       value.textContent = item.value;
       const advice = document.createElement("small");
@@ -155,6 +313,27 @@ function renderList(el, items, rich) {
 
     el.appendChild(li);
   }
+}
+
+function groupRiskItems(items) {
+  const grouped = new Map();
+
+  for (const item of items) {
+    const key = `${item.source || "metadata"}:${item.name}:${item.severity}:${item.advice}`;
+    if (!grouped.has(key)) {
+      grouped.set(key, { ...item, count: 1 });
+      continue;
+    }
+    grouped.get(key).count += 1;
+  }
+
+  return Array.from(grouped.values()).map((item) => {
+    if (item.count <= 1) return item;
+    return {
+      ...item,
+      name: `${item.name} (${item.count} found)`,
+    };
+  });
 }
 
 function formatMetadataValue(value) {
@@ -190,6 +369,7 @@ function renderResult(data) {
   const score = Math.min(data.score || 0, 100);
   const risks = data.risks || [];
   const safe = data.safe_fields || [];
+  const visualScan = data.visual_scan || {};
 
   document.getElementById("score").textContent = score;
   updateGrade(data.grade || "Safe");
@@ -197,6 +377,8 @@ function renderResult(data) {
   document.getElementById("nextStep").textContent = data.summary?.next_step || "Review the metadata before sharing.";
   document.getElementById("riskCount").textContent = String(risks.length);
   document.getElementById("progressFill").style.width = `${score}%`;
+  renderAutoRedaction(visualScan);
+  syncDetectedRedactions(risks);
 
   if (risks.length) {
     renderList(document.getElementById("risks"), risks, true);
@@ -210,6 +392,44 @@ function renderResult(data) {
 
   updateAnalytics(score);
   result.hidden = false;
+}
+
+function syncDetectedRedactions(risks) {
+  if (!redactionImage) return;
+
+  const detectedBoxes = risks
+    .filter((risk) => risk.source === "visual" && risk.box)
+    .map((risk) => ({
+      x1: risk.box.x,
+      y1: risk.box.y,
+      x2: risk.box.x + risk.box.width,
+      y2: risk.box.y + risk.box.height
+    }));
+
+  if (!detectedBoxes.length) return;
+
+  redactionBoxes = detectedBoxes;
+  redactionPanel.hidden = false;
+  redactionPanel.open = true;
+  updateRedactionControls();
+  drawRedactionCanvas();
+}
+
+function renderAutoRedaction(visualScan) {
+  const wrap = document.getElementById("autoRedactionWrap");
+  const image = document.getElementById("autoRedactedImage");
+  const download = document.getElementById("autoRedactionDownload");
+
+  if (!visualScan.redacted_image) {
+    wrap.hidden = true;
+    image.removeAttribute("src");
+    download.removeAttribute("href");
+    return;
+  }
+
+  image.src = visualScan.redacted_image;
+  download.href = visualScan.redacted_image;
+  wrap.hidden = false;
 }
 
 function renderHistory(items) {
@@ -351,6 +571,42 @@ fileInput.addEventListener("change", () => {
 });
 
 clearBtn.addEventListener("click", resetScan);
+
+redactionCanvas.addEventListener("pointerdown", (event) => {
+  if (!redactionImage) return;
+  redactionCanvas.setPointerCapture(event.pointerId);
+  const point = canvasPoint(event);
+  drawingBox = true;
+  draftBox = { x1: point.x, y1: point.y, x2: point.x, y2: point.y };
+  drawRedactionCanvas();
+});
+
+redactionCanvas.addEventListener("pointermove", (event) => {
+  if (!drawingBox || !draftBox) return;
+  const point = canvasPoint(event);
+  draftBox.x2 = point.x;
+  draftBox.y2 = point.y;
+  drawRedactionCanvas();
+});
+
+redactionCanvas.addEventListener("pointerup", finishDraftBox);
+redactionCanvas.addEventListener("pointercancel", finishDraftBox);
+
+undoRedactionBtn.addEventListener("click", () => {
+  redactionBoxes.pop();
+  updateRedactionControls();
+  drawRedactionCanvas();
+});
+
+clearRedactionsBtn.addEventListener("click", () => {
+  redactionBoxes = [];
+  updateRedactionControls();
+  drawRedactionCanvas();
+});
+
+downloadRedactedBtn.addEventListener("click", downloadRedactedImage);
+
+window.addEventListener("resize", resizeRedactionCanvas);
 updateSubmitState();
 refreshHistory();
 refreshServerStats();
