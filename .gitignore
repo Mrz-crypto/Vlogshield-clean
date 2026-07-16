@@ -8,3 +8,5 @@ uploads/
 .pytest_cache/
 .coverage
 htmlcov/
+instance/
+*.sqlite3

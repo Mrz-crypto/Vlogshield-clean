@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin - VlogShield</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="app-shell">
+    <nav class="topbar" aria-label="Account navigation">
+      <a class="brand-link" href="{{ url_for('index') }}">VlogShield</a>
+      <div class="account-actions">
+        <span class="account-pill">{{ current_user.username }} · {{ current_user.role }}</span>
+        <form method="post" action="{{ url_for('logout') }}">
+          <button type="submit" class="secondary topbar-button">Logout</button>
+        </form>
+      </div>
+    </nav>
+
+    <section class="admin-panel" aria-labelledby="admin-title">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Admin</p>
+          <h1 id="admin-title">User access</h1>
+          <p class="intro">Review registered VlogShield accounts and roles.</p>
+        </div>
+        <span class="status-pill">{{ auth_summary.total_users }} users</span>
+      </div>
+
+      <div class="admin-summary">
+        <span>Admins: {{ auth_summary.admins }}</span>
+        <span>Users: {{ auth_summary.users }}</span>
+      </div>
+
+      <div class="user-table" role="table" aria-label="Registered users">
+        <div class="user-row header" role="row">
+          <span role="columnheader">Username</span>
+          <span role="columnheader">Email</span>
+          <span role="columnheader">Role</span>
+          <span role="columnheader">Last login</span>
+        </div>
+        {% for user in users %}
+          <div class="user-row" role="row">
+            <span role="cell">{{ user.username }}</span>
+            <span role="cell">{{ user.email }}</span>
+            <span role="cell">{{ user.role }}</span>
+            <span role="cell">{{ user.last_login_at or "Never" }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -16,6 +16,13 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+try:
+    from pillow_heif import register_heif_opener
+
+    register_heif_opener()
+except ImportError:
+    logger.warning("pillow-heif is unavailable; HEIC uploads cannot be decoded.")
+
 ROOT = Path(__file__).resolve().parent.parent
 UPLOAD_DIR = Path(__file__).resolve().parent / "uploads"
 ALLOWED = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".heic", ".webp"}
@@ -31,6 +38,10 @@ app = Flask(
 )
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 app.config["JSON_SORT_KEYS"] = False
+app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-change-this-secret")
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.getenv("SESSION_COOKIE_SECURE", "0") == "1"
 UPLOAD_DIR.mkdir(exist_ok=True)
 SKIP = {"MakerNote", "PrintImageMatching"}
 SEVERITY = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
@@ -112,13 +123,13 @@ def validate_image(path):
 def extract_exif(path):
     try:
         with Image.open(path) as image:
-            raw = image._getexif() or {}
+            raw = image.getexif() or {}
     except Exception as e:
         logger.warning(f"EXIF extraction failed for {path}: {e}")
         return {}
 
     out = {}
-    for tag_id, value in raw.items():
+    for tag_id, value in dict(raw).items():
         name = TAGS.get(tag_id, str(tag_id))
         if name == "GPSInfo":
             out["GPS"] = {
@@ -183,8 +194,10 @@ def not_found(_error):
 
 def register_routes():
     try:
+        from . import auth
         from . import scorer
     except ImportError:
+        import auth
         import scorer
 
 
