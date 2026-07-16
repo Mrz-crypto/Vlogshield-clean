@@ -9,11 +9,24 @@
 </head>
 <body>
   <main class="app-shell">
+    <nav class="topbar" aria-label="Account navigation">
+      <a class="brand-link" href="{{ url_for('index') }}">VlogShield</a>
+      <div class="account-actions">
+        <span class="account-pill">{{ current_user.username }} · {{ current_user.role }}</span>
+        {% if current_user.role == "admin" %}
+          <a class="secondary-link" href="{{ url_for('admin_dashboard') }}">Admin</a>
+        {% endif %}
+        <form method="post" action="{{ url_for('logout') }}">
+          <button type="submit" class="secondary topbar-button">Logout</button>
+        </form>
+      </div>
+    </nav>
+
     <section class="hero" aria-labelledby="page-title">
       <div class="hero-copy">
         <p class="eyebrow">Image privacy scanner</p>
         <h1 id="page-title">VlogShield</h1>
-        <p class="intro">Check image metadata before you publish. Spot GPS, device, timestamp, and author fields while the file stays on this server.</p>
+        <p class="intro">Check image metadata and visible privacy risks before you publish. Spot GPS, timestamps, author fields, faces, plates, and sensitive body areas while the file stays on this server.</p>
       </div>
       <div class="signal-board" aria-hidden="true">
         <span class="signal-line"></span>
@@ -54,14 +67,33 @@
           <summary>Edit visible redactions</summary>
           <div class="redaction-heading">
             <div>
-              <p>Auto-detected areas appear here. Clear, undo, or draw your own boxes before downloading.</p>
+              <p>Auto-detected faces, plates, and sensitive body areas appear here. Draw boxes to hide missed details or switch to remove mode and click a wrong box.</p>
             </div>
             <span id="redactionCount" class="redaction-count">0 hidden</span>
           </div>
           <canvas id="redactionCanvas" class="redaction-canvas" aria-label="Image redaction preview"></canvas>
           <div class="redaction-actions">
+            <button type="button" id="hideModeBtn" class="secondary active">Hide area</button>
+            <button type="button" id="removeModeBtn" class="secondary">Remove blur</button>
+            <label class="blur-control" for="blurStrength">
+              Blur
+              <select id="blurStrength">
+                <option value="8">Small</option>
+                <option value="14" selected>Medium</option>
+                <option value="24">Large</option>
+              </select>
+            </label>
+            <label class="blur-control" for="coverageMargin">
+              Coverage
+              <select id="coverageMargin">
+                <option value="0">Tight</option>
+                <option value="0.12" selected>Normal</option>
+                <option value="0.24">Wide</option>
+              </select>
+            </label>
             <button type="button" id="undoRedactionBtn" class="secondary" disabled>Undo hide</button>
             <button type="button" id="clearRedactionsBtn" class="secondary" disabled>Clear hides</button>
+            <button type="button" id="downloadCleanBtn" class="secondary" disabled>Download clean copy</button>
             <button type="button" id="downloadRedactedBtn" class="secondary" disabled>Download redacted copy</button>
           </div>
         </details>
@@ -83,14 +115,21 @@
         <div class="summary-box">
           <p id="summary" class="summary"></p>
           <p id="nextStep" class="next-step"></p>
+          <div id="breakdown" class="breakdown" hidden></div>
+          <ul id="actionList" class="action-list"></ul>
+          <div class="report-actions">
+            <button type="button" id="copyReportBtn" class="secondary">Copy scan report</button>
+            <span id="copyReportStatus" class="copy-status" role="status" aria-live="polite"></span>
+          </div>
         </div>
 
         <section id="autoRedactionWrap" class="auto-redaction" hidden>
           <div class="section-heading">
-            <h2>Experimental auto-redacted preview</h2>
+            <h2>Auto-detected preview</h2>
             <a id="autoRedactionDownload" class="download-link" href="#" download="vlogshield-auto-redacted.jpg">Download</a>
           </div>
           <img id="autoRedactedImage" alt="Automatically blurred sensitive visual areas">
+          <p class="auto-redaction-note">Use Edit visible redactions to remove wrong boxes or add missed areas before downloading the final copy.</p>
         </section>
 
         <div class="metadata-section">
@@ -101,8 +140,8 @@
           <ul id="risks" class="metadata-list"></ul>
         </div>
 
-        <details id="safe-wrap" class="metadata-details" hidden>
-          <summary>Other metadata</summary>
+        <details id="safe-wrap" class="metadata-details" hidden open>
+          <summary>More image details: camera, timestamps, authorship, and embedded data</summary>
           <ul id="safe" class="metadata-list compact"></ul>
         </details>
       </section>
@@ -125,7 +164,7 @@
       </div>
       <details class="about-panel">
         <summary>About VlogShield</summary>
-        <p>VlogShield analyzes EXIF metadata for privacy risks before sharing online. It detects GPS coordinates, camera details, timestamps, authorship fields, and other embedded data that can reveal more than intended.</p>
+        <p>VlogShield analyzes EXIF metadata and visible privacy signals before sharing online. It detects GPS coordinates, camera details, timestamps, authorship fields, faces, possible number plates, sensitive body areas, and other data that can reveal more than intended.</p>
       </details>
     </section>
   </main>

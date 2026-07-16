@@ -31,13 +31,82 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
+}
+
+input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #10141b;
+  color: var(--text);
+}
+
+input:focus {
+  border-color: var(--teal);
+  outline: 0;
 }
 
 .app-shell {
   width: min(1120px, 100%);
   margin: 0 auto;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 12px 0;
+}
+
+.brand-link,
+.secondary-link,
+.auth-switch a {
+  color: var(--teal);
+  font-weight: 760;
+  text-decoration: none;
+}
+
+.brand-link:hover,
+.secondary-link:hover,
+.auth-switch a:hover {
+  text-decoration: underline;
+}
+
+.account-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.account-actions form {
+  margin: 0;
+}
+
+.account-pill,
+.role-note {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--soft);
+  font-size: 0.84rem;
+  font-weight: 760;
+}
+
+.topbar-button {
+  min-height: 34px;
+  padding: 0 12px;
 }
 
 .hero {
@@ -354,6 +423,12 @@ button.secondary:hover {
   background: var(--surface-strong);
 }
 
+button.secondary.active {
+  border-color: rgba(37, 199, 183, 0.7);
+  background: rgba(37, 199, 183, 0.14);
+  color: #c4fff7;
+}
+
 button:disabled {
   cursor: wait;
   opacity: 0.62;
@@ -415,11 +490,35 @@ button:disabled {
   touch-action: none;
 }
 
+.redaction-canvas.remove-mode {
+  cursor: not-allowed;
+}
+
 .redaction-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   padding: 12px 16px 16px;
+}
+
+.blur-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--soft);
+  font-weight: 760;
+}
+
+.blur-control select {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-weight: 760;
+  outline: 0;
 }
 
 button:focus-visible,
@@ -496,6 +595,66 @@ summary:focus-visible,
   font-weight: 760;
 }
 
+.breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 0;
+}
+
+.breakdown-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--soft);
+  font-size: 0.78rem;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.action-list {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: var(--soft);
+  line-height: 1.45;
+}
+
+.action-list li::marker {
+  color: var(--teal);
+}
+
+.report-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.report-actions button {
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.copy-status {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.copy-status.success {
+  color: #c8f4d9;
+}
+
+.copy-status.error {
+  color: #ffb4b4;
+}
+
 .auto-redaction {
   margin-bottom: 24px;
 }
@@ -509,6 +668,13 @@ summary:focus-visible,
   border-radius: 8px;
   object-fit: contain;
   background: #0f1217;
+}
+
+.auto-redaction-note {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
 }
 
 .download-link {
@@ -640,6 +806,120 @@ summary {
   line-height: 1.65;
 }
 
+.auth-shell {
+  display: grid;
+  place-items: center;
+  min-height: calc(100vh - 64px);
+}
+
+.auth-panel,
+.admin-panel {
+  width: min(560px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(24, 28, 34, 0.96);
+  box-shadow: var(--shadow);
+  padding: 24px;
+}
+
+.admin-panel {
+  width: 100%;
+}
+
+.auth-intro {
+  margin-bottom: 20px;
+  font-size: 0.98rem;
+}
+
+.auth-form {
+  display: grid;
+  gap: 14px;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--soft);
+  font-weight: 760;
+}
+
+.auth-switch {
+  margin: 18px 0 0;
+  color: var(--muted);
+}
+
+.flash-list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.flash {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #141820;
+  color: var(--soft);
+}
+
+.flash.error {
+  border-color: rgba(240, 107, 107, 0.55);
+  color: #ffb4b4;
+}
+
+.flash.success {
+  border-color: rgba(56, 193, 114, 0.55);
+  color: #c8f4d9;
+}
+
+.admin-summary {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 24px 0 14px;
+  color: var(--soft);
+  font-weight: 760;
+}
+
+.admin-summary span {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.user-table {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.user-row {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 0.7fr 1.4fr;
+  gap: 12px;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--soft);
+}
+
+.user-row:first-child {
+  border-top: 0;
+}
+
+.user-row.header {
+  background: #141820;
+  color: var(--text);
+  font-weight: 760;
+}
+
+.user-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 860px) {
   body {
     padding: 18px;
@@ -681,9 +961,18 @@ summary {
   .redaction-heading,
   .score-row,
   .section-heading,
+  .topbar,
   .history-list li {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .account-actions {
+    justify-content: flex-start;
+  }
+
+  .user-row {
+    grid-template-columns: 1fr;
   }
 
   .drop-zone {
@@ -692,6 +981,7 @@ summary {
   }
 
   .actions button,
+  .report-actions button,
   .redaction-actions button {
     width: 100%;
   }

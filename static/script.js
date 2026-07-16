@@ -14,15 +14,27 @@ const maxUploadMb = document.getElementById("maxUploadMb");
 const redactionPanel = document.getElementById("redactionPanel");
 const redactionCanvas = document.getElementById("redactionCanvas");
 const redactionCount = document.getElementById("redactionCount");
+const hideModeBtn = document.getElementById("hideModeBtn");
+const removeModeBtn = document.getElementById("removeModeBtn");
+const blurStrength = document.getElementById("blurStrength");
+const coverageMargin = document.getElementById("coverageMargin");
 const undoRedactionBtn = document.getElementById("undoRedactionBtn");
 const clearRedactionsBtn = document.getElementById("clearRedactionsBtn");
+const downloadCleanBtn = document.getElementById("downloadCleanBtn");
 const downloadRedactedBtn = document.getElementById("downloadRedactedBtn");
+const actionList = document.getElementById("actionList");
+const breakdown = document.getElementById("breakdown");
+const copyReportBtn = document.getElementById("copyReportBtn");
+const copyReportStatus = document.getElementById("copyReportStatus");
 let previewUrl = "";
 let redactionImage = null;
 let redactionBoxes = [];
+let pendingRedactionBoxes = [];
 let draftBox = null;
 let drawingBox = false;
 let canvasScale = 1;
+let redactionMode = "hide";
+let lastScanResult = null;
 
 const analytics = {
   totalScans: 0,
@@ -51,6 +63,11 @@ function hideStatus() {
   status.textContent = "";
   status.className = "status-message";
   fileInput.setAttribute("aria-invalid", "false");
+}
+
+function clearCopyStatus() {
+  copyReportStatus.textContent = "";
+  copyReportStatus.className = "copy-status";
 }
 
 function formatFileSize(bytes) {
@@ -120,11 +137,18 @@ function updatePreview(file) {
 
 function resetScan() {
   form.reset();
-  result.hidden = true;
+  hideCurrentResult();
   hideStatus();
   resetRedactionTool();
   updateFileMeta();
   setMode("Ready");
+}
+
+function hideCurrentResult() {
+  result.hidden = true;
+  lastScanResult = null;
+  clearCopyStatus();
+  copyReportBtn.disabled = true;
 
   const progressFill = document.getElementById("progressFill");
   if (progressFill) progressFill.style.width = "0%";
@@ -133,8 +157,10 @@ function resetScan() {
 function resetRedactionTool() {
   redactionImage = null;
   redactionBoxes = [];
+  pendingRedactionBoxes = [];
   draftBox = null;
   drawingBox = false;
+  setRedactionMode("hide");
   redactionPanel.hidden = true;
   redactionCanvas.removeAttribute("width");
   redactionCanvas.removeAttribute("height");
@@ -146,7 +172,15 @@ function updateRedactionControls() {
   redactionCount.textContent = `${count} hidden`;
   undoRedactionBtn.disabled = count === 0;
   clearRedactionsBtn.disabled = count === 0;
+  downloadCleanBtn.disabled = !redactionImage;
   downloadRedactedBtn.disabled = !redactionImage || count === 0;
+}
+
+function setRedactionMode(mode) {
+  redactionMode = mode;
+  hideModeBtn.classList.toggle("active", mode === "hide");
+  removeModeBtn.classList.toggle("active", mode === "remove");
+  redactionCanvas.classList.toggle("remove-mode", mode === "remove");
 }
 
 function loadRedactionImage(file) {
@@ -169,6 +203,28 @@ function loadRedactionImage(file) {
     image.src = reader.result;
   };
   reader.readAsDataURL(file);
+}
+
+function loadRedactionImageFromSrc(src) {
+  if (!src) return;
+
+  const image = new Image();
+  image.onload = () => {
+    redactionImage = image;
+    if (pendingRedactionBoxes.length) {
+      redactionBoxes = pendingRedactionBoxes;
+      pendingRedactionBoxes = [];
+      redactionPanel.hidden = false;
+      redactionPanel.open = true;
+    }
+    if (!redactionBoxes.length) {
+      redactionPanel.hidden = false;
+    }
+    resizeRedactionCanvas();
+    updateRedactionControls();
+    updateEditablePreview();
+  };
+  image.src = src;
 }
 
 function resizeRedactionCanvas() {
@@ -198,18 +254,61 @@ function drawRedactionCanvas() {
 }
 
 function paintRedactionBox(ctx, box, isDraft) {
-  const x = Math.min(box.x1, box.x2) * canvasScale;
-  const y = Math.min(box.y1, box.y2) * canvasScale;
-  const width = Math.abs(box.x2 - box.x1) * canvasScale;
-  const height = Math.abs(box.y2 - box.y1) * canvasScale;
+  const expanded = expandedRedactionBox(box);
+  const x = expanded.x * canvasScale;
+  const y = expanded.y * canvasScale;
+  const width = expanded.width * canvasScale;
+  const height = expanded.height * canvasScale;
 
   if (width < 2 || height < 2) return;
 
-  ctx.fillStyle = isDraft ? "rgba(244, 183, 64, 0.55)" : "rgba(0, 0, 0, 0.92)";
+  ctx.fillStyle = isDraft ? "rgba(244, 183, 64, 0.45)" : "rgba(37, 199, 183, 0.24)";
   ctx.fillRect(x, y, width, height);
   ctx.strokeStyle = isDraft ? "#f4b740" : "#25c7b7";
   ctx.lineWidth = 2;
   ctx.strokeRect(x, y, width, height);
+}
+
+function normalizedBox(box) {
+  const x = Math.min(box.x1, box.x2);
+  const y = Math.min(box.y1, box.y2);
+  return {
+    x,
+    y,
+    width: Math.abs(box.x2 - box.x1),
+    height: Math.abs(box.y2 - box.y1)
+  };
+}
+
+function expandedRedactionBox(box) {
+  const bounds = normalizedBox(box);
+  const marginRatio = Number(coverageMargin.value || 0);
+  const padding = Math.round(Math.max(bounds.width, bounds.height) * marginRatio);
+  const x = Math.max(0, bounds.x - padding);
+  const y = Math.max(0, bounds.y - padding);
+  const right = Math.min(redactionImage.naturalWidth, bounds.x + bounds.width + padding);
+  const bottom = Math.min(redactionImage.naturalHeight, bounds.y + bounds.height + padding);
+
+  return {
+    x,
+    y,
+    width: Math.max(0, right - x),
+    height: Math.max(0, bottom - y)
+  };
+}
+
+function findRedactionBoxIndex(point) {
+  for (let index = redactionBoxes.length - 1; index >= 0; index -= 1) {
+    const box = redactionBoxes[index];
+    const x1 = Math.min(box.x1, box.x2);
+    const y1 = Math.min(box.y1, box.y2);
+    const x2 = Math.max(box.x1, box.x2);
+    const y2 = Math.max(box.y1, box.y2);
+    if (point.x >= x1 && point.x <= x2 && point.y >= y1 && point.y <= y2) {
+      return index;
+    }
+  }
+  return -1;
 }
 
 function canvasPoint(event) {
@@ -235,9 +334,10 @@ function finishDraftBox() {
   drawingBox = false;
   updateRedactionControls();
   drawRedactionCanvas();
+  updateEditablePreview();
 }
 
-function downloadRedactedImage() {
+function buildEditedImageDataUrl() {
   if (!redactionImage) return;
 
   const output = document.createElement("canvas");
@@ -247,10 +347,11 @@ function downloadRedactedImage() {
   ctx.drawImage(redactionImage, 0, 0);
 
   for (const box of redactionBoxes) {
-    const x = Math.max(0, Math.round(Math.min(box.x1, box.x2)));
-    const y = Math.max(0, Math.round(Math.min(box.y1, box.y2)));
-    const width = Math.min(output.width - x, Math.round(Math.abs(box.x2 - box.x1)));
-    const height = Math.min(output.height - y, Math.round(Math.abs(box.y2 - box.y1)));
+    const expanded = expandedRedactionBox(box);
+    const x = Math.round(expanded.x);
+    const y = Math.round(expanded.y);
+    const width = Math.min(output.width - x, Math.round(expanded.width));
+    const height = Math.min(output.height - y, Math.round(expanded.height));
     if (width < 2 || height < 2) continue;
     const imageData = ctx.getImageData(x, y, width, height);
     const scratch = document.createElement("canvas");
@@ -259,17 +360,56 @@ function downloadRedactedImage() {
     const scratchCtx = scratch.getContext("2d");
     scratchCtx.putImageData(imageData, 0, 0);
     ctx.save();
-    ctx.filter = "blur(14px)";
+    ctx.filter = `blur(${blurStrength.value}px)`;
     ctx.drawImage(scratch, x, y, width, height);
     ctx.restore();
     ctx.strokeStyle = "#25c7b7";
     ctx.lineWidth = Math.max(2, Math.round(output.width / 500));
     ctx.strokeRect(x, y, width, height);
   }
+  return output.toDataURL("image/png");
+}
+
+function buildCleanImageDataUrl() {
+  if (!redactionImage) return;
+
+  const output = document.createElement("canvas");
+  output.width = redactionImage.naturalWidth;
+  output.height = redactionImage.naturalHeight;
+  const ctx = output.getContext("2d");
+  ctx.drawImage(redactionImage, 0, 0);
+  return output.toDataURL("image/png");
+}
+
+function updateEditablePreview() {
+  const edited = buildEditedImageDataUrl();
+  if (!edited) return;
+
+  const wrap = document.getElementById("autoRedactionWrap");
+  const image = document.getElementById("autoRedactedImage");
+  const download = document.getElementById("autoRedactionDownload");
+  image.src = edited;
+  download.href = edited;
+  wrap.hidden = false;
+}
+
+function downloadRedactedImage() {
+  const edited = buildEditedImageDataUrl();
+  if (!edited) return;
 
   const link = document.createElement("a");
-  link.href = output.toDataURL("image/png");
+  link.href = edited;
   link.download = "vlogshield-redacted.png";
+  link.click();
+}
+
+function downloadCleanImage() {
+  const clean = buildCleanImageDataUrl();
+  if (!clean) return;
+
+  const link = document.createElement("a");
+  link.href = clean;
+  link.download = "vlogshield-clean.png";
   link.click();
 }
 
@@ -284,9 +424,9 @@ function renderEmptyRisk() {
   const li = document.createElement("li");
   li.className = "severity-LOW";
   const strong = document.createElement("strong");
-  strong.textContent = "No sensitive metadata detected";
+  strong.textContent = "No high-risk privacy signals detected";
   const small = document.createElement("small");
-  small.textContent = "The scanner did not find known high-risk EXIF fields in this file.";
+  small.textContent = "Camera details, timestamps, and other embedded fields may still appear under More image details.";
   li.append(strong, small);
   risks.appendChild(li);
 }
@@ -313,6 +453,38 @@ function renderList(el, items, rich) {
 
     el.appendChild(li);
   }
+}
+
+function renderActionList(items) {
+  clearList(actionList);
+  actionList.hidden = !items.length;
+
+  for (const item of items) {
+    const li = document.createElement("li");
+    li.textContent = item;
+    actionList.appendChild(li);
+  }
+}
+
+function renderBreakdown(item = {}) {
+  breakdown.replaceChildren();
+  const entries = [
+    ["Metadata", item.metadata || 0],
+    ["Visual", item.visual || 0],
+    ["Critical", item.critical || 0],
+    ["High", item.high || 0],
+    ["Medium", item.medium || 0],
+    ["Low", item.low || 0]
+  ];
+
+  for (const [label, value] of entries) {
+    const chip = document.createElement("span");
+    chip.className = "breakdown-pill";
+    chip.textContent = `${label}: ${value}`;
+    breakdown.appendChild(chip);
+  }
+
+  breakdown.hidden = false;
 }
 
 function groupRiskItems(items) {
@@ -366,6 +538,10 @@ function updateAnalytics(score) {
 }
 
 function renderResult(data) {
+  lastScanResult = data;
+  copyReportBtn.disabled = false;
+  clearCopyStatus();
+
   const score = Math.min(data.score || 0, 100);
   const risks = data.risks || [];
   const safe = data.safe_fields || [];
@@ -377,6 +553,9 @@ function renderResult(data) {
   document.getElementById("nextStep").textContent = data.summary?.next_step || "Review the metadata before sharing.";
   document.getElementById("riskCount").textContent = String(risks.length);
   document.getElementById("progressFill").style.width = `${score}%`;
+  renderBreakdown(data.risk_breakdown || {});
+  renderActionList(data.actions || []);
+  renderServerPreview(visualScan);
   renderAutoRedaction(visualScan);
   syncDetectedRedactions(risks);
 
@@ -388,15 +567,101 @@ function renderResult(data) {
 
   const safeWrap = document.getElementById("safe-wrap");
   safeWrap.hidden = safe.length === 0;
+  safeWrap.open = safe.length > 0;
   renderList(document.getElementById("safe"), safe, false);
 
   updateAnalytics(score);
   result.hidden = false;
 }
 
-function syncDetectedRedactions(risks) {
-  if (!redactionImage) return;
+function buildScanReport(data) {
+  const lines = [
+    "VlogShield scan report",
+    `Score: ${data.score || 0}/100 (${data.grade || "Unknown"})`,
+    "",
+    "Summary:",
+    data.summary?.headline || "Scan complete.",
+    data.summary?.next_step || "Review the metadata before sharing.",
+    "",
+    "Breakdown:",
+  ];
+  const breakdownData = data.risk_breakdown || {};
+  lines.push(`Metadata: ${breakdownData.metadata || 0}`);
+  lines.push(`Visual: ${breakdownData.visual || 0}`);
+  lines.push(`Critical: ${breakdownData.critical || 0}`);
+  lines.push(`High: ${breakdownData.high || 0}`);
+  lines.push(`Medium: ${breakdownData.medium || 0}`);
+  lines.push(`Low: ${breakdownData.low || 0}`);
 
+  lines.push("", "Detected risks:");
+  const risks = groupRiskItems(data.risks || []);
+  if (risks.length) {
+    for (const risk of risks) {
+      const source = risk.source === "visual" ? "visual" : "metadata";
+      lines.push(`- ${risk.name} [${source}, ${risk.severity}]: ${risk.value}`);
+    }
+  } else {
+    lines.push("- None detected");
+  }
+
+  lines.push("", "Recommended actions:");
+  for (const action of data.actions || []) {
+    lines.push(`- ${action}`);
+  }
+
+  lines.push("", "Redaction settings:");
+  lines.push(`- Blur: ${blurStrength.options[blurStrength.selectedIndex].text}`);
+  lines.push(`- Coverage: ${coverageMargin.options[coverageMargin.selectedIndex].text}`);
+
+  lines.push("", "Privacy guards:");
+  for (const guard of data.privacy_guards || []) {
+    lines.push(`- ${guard}`);
+  }
+
+  return lines.join("\n");
+}
+
+function fallbackCopy(text) {
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("Copy failed");
+}
+
+async function copyScanReport() {
+  if (!lastScanResult) return;
+
+  const text = buildScanReport(lastScanResult);
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      fallbackCopy(text);
+    }
+    copyReportStatus.textContent = "Copied";
+    copyReportStatus.className = "copy-status success";
+  } catch (_error) {
+    copyReportStatus.textContent = "Copy failed";
+    copyReportStatus.className = "copy-status error";
+  }
+}
+
+function renderServerPreview(visualScan) {
+  if (!visualScan.preview_image) return;
+
+  imagePreview.src = visualScan.preview_image;
+  imagePreview.hidden = false;
+  dropZone.classList.add("has-preview");
+  loadRedactionImageFromSrc(visualScan.preview_image);
+}
+
+function syncDetectedRedactions(risks) {
   const detectedBoxes = risks
     .filter((risk) => risk.source === "visual" && risk.box)
     .map((risk) => ({
@@ -407,6 +672,11 @@ function syncDetectedRedactions(risks) {
     }));
 
   if (!detectedBoxes.length) return;
+
+  if (!redactionImage) {
+    pendingRedactionBoxes = detectedBoxes;
+    return;
+  }
 
   redactionBoxes = detectedBoxes;
   redactionPanel.hidden = false;
@@ -498,6 +768,7 @@ async function refreshServerStats() {
 }
 
 function setDroppedFile(file) {
+  hideCurrentResult();
   const dataTransfer = new DataTransfer();
   dataTransfer.items.add(file);
   fileInput.files = dataTransfer.files;
@@ -542,7 +813,7 @@ form.addEventListener("submit", async (event) => {
   }
 
   btn.disabled = true;
-  result.hidden = true;
+  hideCurrentResult();
   showStatus(`Scanning ${file.name} (${formatFileSize(file.size)})...`);
 
   const body = new FormData();
@@ -566,6 +837,7 @@ form.addEventListener("submit", async (event) => {
 });
 
 fileInput.addEventListener("change", () => {
+  hideCurrentResult();
   updateFileMeta();
   hideStatus();
 });
@@ -574,8 +846,20 @@ clearBtn.addEventListener("click", resetScan);
 
 redactionCanvas.addEventListener("pointerdown", (event) => {
   if (!redactionImage) return;
-  redactionCanvas.setPointerCapture(event.pointerId);
   const point = canvasPoint(event);
+
+  if (redactionMode === "remove") {
+    const index = findRedactionBoxIndex(point);
+    if (index >= 0) {
+      redactionBoxes.splice(index, 1);
+      updateRedactionControls();
+      drawRedactionCanvas();
+      updateEditablePreview();
+    }
+    return;
+  }
+
+  redactionCanvas.setPointerCapture(event.pointerId);
   drawingBox = true;
   draftBox = { x1: point.x, y1: point.y, x2: point.x, y2: point.y };
   drawRedactionCanvas();
@@ -596,14 +880,25 @@ undoRedactionBtn.addEventListener("click", () => {
   redactionBoxes.pop();
   updateRedactionControls();
   drawRedactionCanvas();
+  updateEditablePreview();
 });
 
 clearRedactionsBtn.addEventListener("click", () => {
   redactionBoxes = [];
   updateRedactionControls();
   drawRedactionCanvas();
+  updateEditablePreview();
 });
 
+hideModeBtn.addEventListener("click", () => setRedactionMode("hide"));
+removeModeBtn.addEventListener("click", () => setRedactionMode("remove"));
+blurStrength.addEventListener("change", updateEditablePreview);
+coverageMargin.addEventListener("change", () => {
+  drawRedactionCanvas();
+  updateEditablePreview();
+});
+copyReportBtn.addEventListener("click", copyScanReport);
+downloadCleanBtn.addEventListener("click", downloadCleanImage);
 downloadRedactedBtn.addEventListener("click", downloadRedactedImage);
 
 window.addEventListener("resize", resizeRedactionCanvas);
