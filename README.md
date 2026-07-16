@@ -48,6 +48,10 @@ gunicorn --bind 0.0.0.0:5000 wsgi:app
 ## Available Endpoints
 
 - **GET** `/` - Main web interface
+- **GET/POST** `/register` - Create a local VlogShield account
+- **GET/POST** `/login` - Sign in
+- **POST** `/logout` - Sign out
+- **GET** `/admin` - Admin-only user overview
 - **POST** `/scan` - Upload and scan an image for metadata
 - **GET** `/history` - View recent scan history (last 50 scans)
 - **GET** `/health` - Health check endpoint
@@ -56,17 +60,21 @@ gunicorn --bind 0.0.0.0:5000 wsgi:app
 The `/health` endpoint includes uptime, upload-limit, rate-limit, and storage-backend details. The `/stats` endpoint includes total, successful, failed, success-rate, stored-scan, average-score, and high-risk counters.
 Both endpoints also report the configured upload limit and active storage backend so UI and monitoring checks can confirm runtime settings.
 Responses include baseline browser security headers such as `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and a restrictive `Permissions-Policy`.
+Scanner routes require login. `/health`, `/login`, `/register`, and static assets remain public.
 
 ## Usage
 
 1. Open `http://localhost:5000` in your browser
-2. Upload an image file (JPG, PNG, TIFF, HEIC, WebP)
-3. The app will analyze EXIF metadata and display:
+2. Register an account. The first registered account becomes admin automatically.
+3. Sign in, then upload an image file (JPG, PNG, TIFF, HEIC, WebP)
+4. The app will analyze EXIF metadata and display:
    - Privacy score (0-100)
    - Risk level (Safe, Low, Medium, High risk)
    - A short privacy summary
+   - Metadata/visual/severity risk breakdown
    - Identified sensitive metadata
    - Recommendations
+   - A copyable scan report
 
 ## Supported Image Formats
 
@@ -78,10 +86,14 @@ Responses include baseline browser security headers such as `X-Content-Type-Opti
 
 ## Features
 
-- **Privacy Scoring** - Automatic risk assessment based on metadata
-- **Detailed Analysis** - Breakdown of all detected metadata
-- **Automatic Visual Redaction** - Experimental OpenCV detection is enabled by default for stronger face and possible vehicle-plate matches
-- **Editable Visual Redaction** - Review auto-detected boxes, clear false positives, draw your own boxes, and download a redacted copy
+- **Privacy Scoring** - Automatic risk assessment for GPS, authorship, serial, and other sensitive metadata
+- **User Login and Registration** - Protect scanner access behind local accounts with hashed passwords
+- **Admin Dashboard** - First registered account becomes admin and can review registered users
+- **Detailed Analysis** - Shows camera details, timestamps, authorship fields, and other embedded data, with lower-risk fields grouped under more details
+- **Automatic Visual Redaction** - Experimental OpenCV detection is enabled by default for stronger face, possible vehicle-plate, and sensitive body-area matches
+- **Editable Visual Redaction** - Review auto-detected boxes, clear false positives, draw your own boxes, choose blur strength and coverage margin, and download a redacted copy
+- **Clean Copy Export** - Download a full-size PNG copy without original EXIF metadata when no visible blur is needed
+- **Copyable Privacy Report** - Copy score, breakdown, risks, actions, and privacy guard notes for review
 - **Image Validation** - Rejects unsupported extensions and unreadable image uploads
 - **Privacy-Safe Scan History** - Track recent scans without storing original upload filenames
 - **Optional MySQL Storage** - Persist privacy-safe scan history when database settings are configured
@@ -94,11 +106,14 @@ Responses include baseline browser security headers such as `X-Content-Type-Opti
 
 - Uploaded images are saved only long enough to validate and scan them.
 - Temporary upload files are deleted after processing.
+- User passwords are hashed before storage in the local user database.
+- The default local user database lives under `instance/` and is ignored by Git.
+- Scan responses include privacy guard notes so the UI can show what is and is not retained.
 - Automatic visual redaction returns a blurred preview when visible privacy risks are detected. Set `VISUAL_AUTO_REDACTION=0` to disable it.
-- Editable redaction runs in the browser. Auto-detected boxes can be cleared or changed before exporting a blurred PNG copy.
+- Editable redaction runs in the browser. Auto-detected boxes can be cleared or changed, and blur strength plus coverage margin can be adjusted before exporting a full-size blurred PNG copy.
 - Scan history stores file type, score, grade, risk count, timestamp, and an internal scan id.
 - Original uploaded filenames are not stored in scan history or normal scan-complete logs.
-- Visual detection uses local computer-vision heuristics and should be reviewed before sharing. Set `VISUAL_AUTO_REDACTION=0` to disable automatic visual scanning. The experimental skin/body heuristic is disabled by default; set `VISUAL_BODY_HEURISTIC=1` only if you want to test it.
+- Visual detection uses local computer-vision heuristics and should be reviewed before sharing. Set `VISUAL_AUTO_REDACTION=0` to disable automatic visual scanning. Set `VISUAL_BODY_HEURISTIC=0` to disable sensitive body-area detection.
 
 ## Testing
 
@@ -162,9 +177,12 @@ Environment variables (in `.env`):
 - `MAX_UPLOAD_MB` - Maximum accepted upload size in megabytes
 - `SCAN_RATE_LIMIT` - Upload throttle for `/scan`, for example `10 per minute`; set blank to disable
 - `RATE_LIMIT_STORAGE_URI` - Flask-Limiter storage URI, default `memory://`
+- `SECRET_KEY` - Flask session signing secret; set a strong value outside development
+- `SESSION_COOKIE_SECURE` - Set to `1` when serving only over HTTPS
+- `USER_DB_PATH` - Optional SQLite path for local login/register accounts
 - `DATABASE_URL` - Optional MySQL connection URL for persistent scan history
 - `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD` - Optional MySQL settings when `DATABASE_URL` is not used
 - `VISUAL_AUTO_REDACTION` - Set to `0` to disable experimental automatic visual blur detection
-- `VISUAL_BODY_HEURISTIC` - Set to `1` to also test experimental skin/body region detection
+- `VISUAL_BODY_HEURISTIC` - Set to `0` to disable experimental sensitive body-area detection
 
 Use `.env.example` as the template for local configuration. The real `.env` file is ignored by Git.

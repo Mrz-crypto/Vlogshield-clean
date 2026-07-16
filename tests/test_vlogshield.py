@@ -1,11 +1,14 @@
 import io
+from pathlib import Path
+import tempfile
 from unittest.mock import patch
 import unittest
 
 from PIL import Image
 
 from vlogshield.app import app, normalize_metadata_value, scan_store
-from vlogshield.scorer import format_metadata_display, grade_scan
+from vlogshield.auth import configure_user_store
+from vlogshield.scorer import build_action_items, format_metadata_display, grade_scan
 
 
 def make_png_bytes():
@@ -18,8 +21,44 @@ def make_png_bytes():
 class VlogShieldApiTests(unittest.TestCase):
     def setUp(self):
         app.config["TESTING"] = True
+        self.auth_tmp = tempfile.TemporaryDirectory()
+        configure_user_store(Path(self.auth_tmp.name) / "users.sqlite3")
         self.client = app.test_client()
         scan_store.clear()
+        self.register_and_login()
+
+    def tearDown(self):
+        self.auth_tmp.cleanup()
+
+    def register_and_login(self):
+        response = self.client.post(
+            "/register",
+            data={
+                "username": "owner",
+                "email": "owner@example.com",
+                "password": "password123",
+                "confirm": "password123",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+
+    def test_unauthenticated_scan_requires_login(self):
+        guest = app.test_client()
+
+        response = guest.post(
+            "/scan",
+            data={"file": (make_png_bytes(), "clean.png")},
+            content_type="multipart/form-data",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.get_json()["error"], "Authentication required")
+
+    def test_first_registered_user_can_open_admin_dashboard(self):
+        response = self.client.get("/admin")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"owner@example.com", response.data)
 
     def test_health_includes_runtime_details(self):
         response = self.client.get("/health")
@@ -76,7 +115,29 @@ class VlogShieldApiTests(unittest.TestCase):
         self.assertEqual(payload["grade"], "Safe")
         self.assertEqual(payload["summary"]["top_severity"], "NONE")
         self.assertIn("visual_scan", payload)
+        self.assertIn("actions", payload)
+        self.assertIn("risk_breakdown", payload)
+        self.assertIn("privacy_guards", payload)
+        self.assertGreaterEqual(len(payload["actions"]), 1)
+        self.assertIn("Temporary upload is deleted after scanning.", payload["privacy_guards"])
+        self.assertEqual(payload["risk_breakdown"]["metadata"], 0)
+        self.assertEqual(payload["risk_breakdown"]["visual"], 0)
         self.assertEqual(payload["visual_scan"]["risk_count"], 0)
+
+    def test_image_validation_accepts_registered_heic(self):
+        from pillow_heif import HeifImagePlugin  # noqa: F401
+
+        buffer = io.BytesIO()
+        Image.new("RGB", (4, 4), color=(30, 80, 120)).save(buffer, format="HEIF")
+        buffer.seek(0)
+
+        response = self.client.post(
+            "/scan",
+            data={"file": (buffer, "clean.heic")},
+            content_type="multipart/form-data",
+        )
+
+        self.assertEqual(response.status_code, 200)
 
     def test_history_does_not_store_original_filename(self):
         response = self.client.post(
@@ -138,6 +199,14 @@ class VlogShieldApiTests(unittest.TestCase):
 
     def test_critical_metadata_stays_high_risk(self):
         self.assertEqual(grade_scan(45, [{"severity": "CRITICAL"}]), "High risk")
+
+    def test_timestamp_action_is_included_for_timestamp_risk(self):
+        actions = build_action_items(
+            [{"name": "Original Timestamp", "severity": "LOW", "source": "metadata"}],
+            [],
+        )
+
+        self.assertIn("Check timestamps if the capture time should stay private.", actions)
 
     def test_disabled_visual_scan_does_not_return_visual_risks(self):
         fake_visual = {
