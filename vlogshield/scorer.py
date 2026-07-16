@@ -21,9 +21,6 @@ logger = logging.getLogger(__name__)
 # tag -> (name, points, severity, advice)
 RISKS = {
     "GPS": ("GPS Coordinates", 45, "CRITICAL", "Exact location is embedded in this image."),
-    "Make": ("Camera/Phone Brand", 10, "LOW", "Shows which device brand took the photo."),
-    "Model": ("Camera/Phone Model", 15, "MEDIUM", "Shows your exact device model."),
-    "Software": ("Software Used", 10, "LOW", "Shows which app or OS processed the image."),
     "DateTime": ("Original Timestamp", 10, "LOW", "Shows when the photo was taken."),
     "DateTimeOriginal": ("Shooting Timestamp", 10, "LOW", "Shows the exact capture time."),
     "Artist": ("Artist / Author Name", 25, "HIGH", "Your real name may be stored in the file."),
@@ -46,6 +43,12 @@ RECOMMENDATIONS = {
     "MEDIUM": "Review this finding and use the redacted copy when posting publicly.",
     "LOW": "This field is usually low impact, but removing it is still safer.",
 }
+
+PRIVACY_GUARDS = [
+    "Temporary upload is deleted after scanning.",
+    "Scan history excludes original filenames.",
+    "Clean and redacted PNG exports do not keep original EXIF metadata.",
+]
 
 
 def format_metadata_display(value):
@@ -82,6 +85,45 @@ def build_summary(score, risks):
         "headline": f"{' and '.join(parts)} found.",
         "next_step": RECOMMENDATIONS.get(top, "Review the metadata before sharing."),
         "top_severity": top,
+    }
+
+
+def build_action_items(risks, safe_fields):
+    actions = []
+    names = {risk["name"] for risk in risks}
+    safe_tags = {field["tag"] for field in safe_fields}
+    risk_tags = {
+        tag
+        for tag, (name, _points, _severity, _advice) in RISKS.items()
+        if name in names
+    }
+
+    if "GPS Coordinates" in names:
+        actions.append("Remove GPS/location metadata before posting.")
+    if any("Serial Number" in name for name in names):
+        actions.append("Strip device or lens serial numbers from the file.")
+    if any("Author" in name or "Owner" in name for name in names):
+        actions.append("Remove authorship or owner fields.")
+    if any(risk.get("source") == "visual" for risk in risks):
+        actions.append("Review the redaction boxes and download the redacted copy.")
+    if {"Make", "Model"} & safe_tags:
+        actions.append("Camera/device details are shown under more details for review.")
+    if {"DateTime", "DateTimeOriginal"} & risk_tags:
+        actions.append("Check timestamps if the capture time should stay private.")
+
+    if not actions:
+        actions.append("Download a metadata-clean copy before sharing publicly.")
+    return actions
+
+
+def risk_breakdown(risks):
+    return {
+        "metadata": sum(1 for risk in risks if risk.get("source") == "metadata"),
+        "visual": sum(1 for risk in risks if risk.get("source") == "visual"),
+        "critical": sum(1 for risk in risks if risk["severity"] == "CRITICAL"),
+        "high": sum(1 for risk in risks if risk["severity"] == "HIGH"),
+        "medium": sum(1 for risk in risks if risk["severity"] == "MEDIUM"),
+        "low": sum(1 for risk in risks if risk["severity"] == "LOW"),
     }
 
 
@@ -134,9 +176,13 @@ def score_image(path):
         "summary": build_summary(score, risks),
         "risks": risks,
         "safe_fields": safe_fields,
+        "actions": build_action_items(risks, safe_fields),
+        "risk_breakdown": risk_breakdown(risks),
+        "privacy_guards": PRIVACY_GUARDS,
         "visual_scan": {
             "available": visual["available"],
             "risk_count": len(visual_risks),
+            "preview_image": visual.get("preview_image") if visual["available"] else None,
             "redacted_image": visual["redacted_image"] if visual["available"] else None,
         },
     }
