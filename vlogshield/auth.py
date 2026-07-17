@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from contextlib import closing
 from functools import wraps
+import logging
 import os
 from pathlib import Path
 import sqlite3
@@ -13,9 +14,15 @@ try:
 except ImportError:
     from app import ROOT, app
 
+try:
+    from .storage import mysql_config_from_env
+except ImportError:
+    from storage import mysql_config_from_env
+
 
 PUBLIC_ENDPOINTS = {"health_check", "login", "register", "static"}
 USER_DB_PATH = Path(os.getenv("USER_DB_PATH", ROOT / "instance" / "vlogshield_users.sqlite3"))
+logger = logging.getLogger(__name__)
 
 
 class UserStore:
@@ -51,6 +58,23 @@ class UserStore:
             with db:
                 db.execute("DELETE FROM users")
 
+    def delete_user(self, user_id):
+        with closing(self._connect()) as db:
+            with db:
+                cursor = db.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        return cursor.rowcount > 0
+
+    def export_users(self):
+        with closing(self._connect()) as db:
+            rows = db.execute(
+                """
+                SELECT id, username, email, password_hash, role, created_at, last_login_at
+                FROM users
+                ORDER BY id ASC
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def has_users(self):
         with closing(self._connect()) as db:
             row = db.execute("SELECT COUNT(*) AS total FROM users").fetchone()
@@ -61,6 +85,7 @@ class UserStore:
         email = email.strip().lower()
         role = "user" if self.has_users() else "admin"
         now = datetime.now(timezone.utc).isoformat()
+        password_hash = generate_password_hash(password)
 
         with closing(self._connect()) as db:
             with db:
@@ -69,9 +94,20 @@ class UserStore:
                     INSERT INTO users (username, email, password_hash, role, created_at)
                     VALUES (?, ?, ?, ?, ?)
                     """,
-                    (username, email, generate_password_hash(password), role, now),
+                    (username, email, password_hash, role, now),
                 )
                 user_id = cursor.lastrowid
+        _mirror_user_snapshot(
+            {
+                "id": user_id,
+                "username": username,
+                "email": email,
+                "password_hash": password_hash,
+                "role": role,
+                "created_at": now,
+                "last_login_at": None,
+            }
+        )
         return self.find_by_id(user_id)
 
     def find_by_id(self, user_id):
@@ -99,11 +135,14 @@ class UserStore:
         row = self.find_by_identity(identity)
         if not row or not check_password_hash(row["password_hash"], password):
             return None
-        self.update_last_login(row["id"])
+        now = datetime.now(timezone.utc).isoformat()
+        self.update_last_login(row["id"], now)
+        row["last_login_at"] = now
+        _mirror_user_snapshot(row)
         return self.find_by_id(row["id"])
 
-    def update_last_login(self, user_id):
-        now = datetime.now(timezone.utc).isoformat()
+    def update_last_login(self, user_id, timestamp=None):
+        now = timestamp or datetime.now(timezone.utc).isoformat()
         with closing(self._connect()) as db:
             with db:
                 db.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, user_id))
@@ -128,12 +167,164 @@ class UserStore:
         }
 
 
+class MySQLAuthMirror:
+    name = "mysql"
+
+    def __init__(self, config: dict):
+        try:
+            import mysql.connector
+        except ImportError as exc:
+            raise RuntimeError("mysql-connector-python is required for MySQL auth mirroring.") from exc
+
+        self._mysql = mysql.connector
+        self._config = config
+        self._ensure_schema()
+
+    def _connect(self):
+        return self._mysql.connect(**self._config)
+
+    def _ensure_schema(self):
+        users_ddl = """
+            CREATE TABLE IF NOT EXISTS users (
+                id INT NOT NULL PRIMARY KEY,
+                username VARCHAR(255) NOT NULL UNIQUE,
+                email VARCHAR(255) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL,
+                role VARCHAR(16) NOT NULL,
+                created_at VARCHAR(40) NOT NULL,
+                last_login_at VARCHAR(40) NULL
+            )
+        """
+        login_events_ddl = """
+            CREATE TABLE IF NOT EXISTS login_events (
+                event_id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                username VARCHAR(255) NOT NULL,
+                email VARCHAR(255) NOT NULL,
+                role VARCHAR(16) NOT NULL,
+                logged_in_at VARCHAR(40) NOT NULL
+            )
+        """
+
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(users_ddl)
+                cursor.execute(login_events_ddl)
+            conn.commit()
+
+    def _write_user(self, cursor, user):
+        cursor.execute(
+            """
+            INSERT INTO users (id, username, email, password_hash, role, created_at, last_login_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                user["id"],
+                user["username"],
+                user["email"],
+                user["password_hash"],
+                user["role"],
+                user["created_at"],
+                user.get("last_login_at"),
+            ),
+        )
+
+    def sync_from_users(self, users):
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("DELETE FROM users")
+                for user in users:
+                    self._write_user(cursor, user)
+            conn.commit()
+
+    def store_user(self, user):
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("DELETE FROM users WHERE id = %s", (user["id"],))
+                self._write_user(cursor, user)
+            conn.commit()
+
+    def record_login(self, user):
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO login_events (user_id, username, email, role, logged_in_at)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (
+                        user["id"],
+                        user["username"],
+                        user["email"],
+                        user["role"],
+                        datetime.now(timezone.utc).isoformat(),
+                    ),
+                )
+            conn.commit()
+
+    def delete_user(self, user_id):
+        with self._connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("DELETE FROM login_events WHERE user_id = %s", (user_id,))
+                cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
+            conn.commit()
+
+
+def _mirror_user_snapshot(user):
+    if user_mirror is None:
+        return
+    try:
+        user_mirror.store_user(user)
+    except Exception as exc:
+        logger.warning("MySQL user mirroring failed; continuing with local auth only: %s", exc)
+
+
+def _record_login_event(user):
+    if user_mirror is None:
+        return
+    try:
+        user_mirror.record_login(user)
+    except Exception as exc:
+        logger.warning("MySQL login event mirroring failed; continuing with local auth only: %s", exc)
+
+
+def _delete_user_everywhere(user_id):
+    deleted = user_store.delete_user(user_id)
+    if not deleted:
+        return False
+    if user_mirror is not None:
+        try:
+            user_mirror.delete_user(user_id)
+        except Exception as exc:
+            logger.warning("MySQL user deletion mirror failed; continuing with local auth only: %s", exc)
+    return True
+
+
+def create_user_mirror(local_store):
+    try:
+        config = mysql_config_from_env()
+        if not config:
+            return None
+        mirror = MySQLAuthMirror(config)
+        mirror.sync_from_users(local_store.export_users())
+        return mirror
+    except Exception as exc:
+        logger.warning("MySQL auth mirroring unavailable; using SQLite-only auth: %s", exc)
+        return None
+
+
 user_store = UserStore(USER_DB_PATH)
+user_mirror = create_user_mirror(user_store)
 
 
 def configure_user_store(path):
     global user_store
     user_store = UserStore(path)
+    if user_mirror is not None:
+        try:
+            user_mirror.sync_from_users(user_store.export_users())
+        except Exception as exc:
+            logger.warning("MySQL auth mirror refresh failed: %s", exc)
     return user_store
 
 
@@ -229,6 +420,7 @@ def register():
                 session.clear()
                 session["user_id"] = user["id"]
                 session.permanent = True
+                _record_login_event(user)
                 flash(f"Account created. You are signed in as {user['role']}.", "success")
                 return redirect(url_for("index"))
             except sqlite3.IntegrityError:
@@ -254,6 +446,7 @@ def login():
             session.clear()
             session["user_id"] = user["id"]
             session.permanent = True
+            _record_login_event(user)
             return redirect(next_url if next_url.startswith("/") else url_for("index"))
 
         flash("Invalid username/email or password.", "error")
@@ -266,6 +459,33 @@ def logout():
     session.clear()
     flash("Signed out.", "success")
     return redirect(url_for("login"))
+
+
+@app.route("/admin/users/<int:user_id>/delete", methods=["POST"])
+@admin_required
+def delete_user(user_id):
+    actor = current_user()
+    target = user_store.find_by_id(user_id)
+
+    if not target:
+        flash("User not found.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    if actor and target["id"] == actor["id"]:
+        flash("You cannot delete your own account while signed in.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    summary = user_store.summary()
+    if target["role"] == "admin" and summary["admins"] <= 1:
+        flash("At least one admin account must remain.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    if not _delete_user_everywhere(user_id):
+        flash("User not found.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    flash(f"Deleted user {target['username']}.", "success")
+    return redirect(url_for("admin_dashboard"))
 
 
 @app.route("/admin", methods=["GET"])

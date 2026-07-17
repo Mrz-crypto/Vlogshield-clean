@@ -6,6 +6,7 @@ import unittest
 
 from PIL import Image
 
+import vlogshield.auth as auth
 from vlogshield.app import app, normalize_metadata_value, scan_store
 from vlogshield.auth import configure_user_store
 from vlogshield.scorer import build_action_items, format_metadata_display, grade_scan
@@ -59,6 +60,30 @@ class VlogShieldApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"owner@example.com", response.data)
+
+    def test_admin_can_delete_user(self):
+        guest = app.test_client()
+        guest.post(
+            "/register",
+            data={
+                "username": "remove-me",
+                "email": "remove-me@example.com",
+                "password": "password123",
+                "confirm": "password123",
+            },
+        )
+
+        target = auth.user_store.find_by_identity("remove-me")
+        self.assertIsNotNone(target)
+
+        response = self.client.post(
+            f"/admin/users/{target['id']}/delete",
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Deleted user remove-me.", response.data)
+        self.assertIsNone(auth.user_store.find_by_identity("remove-me"))
 
     def test_health_includes_runtime_details(self):
         response = self.client.get("/health")
