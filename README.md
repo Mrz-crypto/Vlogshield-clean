@@ -139,6 +139,8 @@ Use the setup helper from PowerShell:
 
 It prompts for the MySQL root password and the app-user password locally, creates the database/user, grants the app permissions, and updates `.env`.
 
+When MySQL is enabled, the app also mirrors local auth accounts into a `users` table and records successful sign-ins in `login_events`, so you can inspect them in Workbench. Passwords are stored as hashes, not plain text.
+
 Or run the SQL manually:
 
 ```sql
@@ -164,7 +166,7 @@ set MYSQL_USER=vlogshield_user
 set MYSQL_PASSWORD=change_me
 ```
 
-The app creates the `scans` table automatically when MySQL storage is available.
+The app creates the `scans`, `users`, and `login_events` tables automatically when MySQL storage is available.
 
 ## Configuration
 

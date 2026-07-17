@@ -429,6 +429,17 @@ button.secondary.active {
   color: #c4fff7;
 }
 
+button.secondary.danger {
+  border-color: rgba(240, 107, 107, 0.55);
+  background: rgba(240, 107, 107, 0.08);
+  color: #ffd1d1;
+}
+
+button.secondary.danger:hover {
+  border-color: rgba(240, 107, 107, 0.8);
+  background: rgba(240, 107, 107, 0.16);
+}
+
 button:disabled {
   cursor: wait;
   opacity: 0.62;
@@ -898,11 +909,12 @@ summary {
 
 .user-row {
   display: grid;
-  grid-template-columns: 1fr 1.4fr 0.7fr 1.4fr;
+  grid-template-columns: minmax(56px, 0.32fr) minmax(0, 1fr) minmax(0, 1.35fr) minmax(0, 0.7fr) minmax(0, 1.25fr) minmax(0, 1.2fr) auto;
   gap: 12px;
   padding: 12px;
   border-top: 1px solid var(--line);
   color: var(--soft);
+  align-items: center;
 }
 
 .user-row:first-child {
@@ -918,6 +930,15 @@ summary {
 .user-row span {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.user-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.user-actions form {
+  margin: 0;
 }
 
 @media (max-width: 860px) {
@@ -973,6 +994,10 @@ summary {
 
   .user-row {
     grid-template-columns: 1fr;
+  }
+
+  .user-actions {
+    justify-content: flex-start;
   }
 
   .drop-zone {
