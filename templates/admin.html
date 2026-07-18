@@ -33,19 +33,47 @@
         <span>Users: {{ auth_summary.users }}</span>
       </div>
 
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="flash-list">
+            {% for category, message in messages %}
+              <p class="flash {{ category }}">{{ message }}</p>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      <p class="auth-intro">
+        Passwords stay hashed for safety. Admins can view account IDs, usernames, emails, roles, and login timestamps here.
+      </p>
+
       <div class="user-table" role="table" aria-label="Registered users">
         <div class="user-row header" role="row">
+          <span role="columnheader">ID</span>
           <span role="columnheader">Username</span>
           <span role="columnheader">Email</span>
           <span role="columnheader">Role</span>
           <span role="columnheader">Last login</span>
+          <span role="columnheader">Created</span>
+          <span role="columnheader">Action</span>
         </div>
         {% for user in users %}
           <div class="user-row" role="row">
+            <span role="cell">{{ user.id }}</span>
             <span role="cell">{{ user.username }}</span>
             <span role="cell">{{ user.email }}</span>
             <span role="cell">{{ user.role }}</span>
             <span role="cell">{{ user.last_login_at or "Never" }}</span>
+            <span role="cell">{{ user.created_at }}</span>
+            <span role="cell" class="user-actions">
+              {% if current_user and user.id == current_user.id %}
+                <button type="button" class="secondary danger" disabled>Current</button>
+              {% else %}
+                <form method="post" action="{{ url_for('delete_user', user_id=user.id) }}" onsubmit="return confirm('Delete this user?');">
+                  <button type="submit" class="secondary danger">Delete</button>
+                </form>
+              {% endif %}
+            </span>
           </div>
         {% endfor %}
       </div>
