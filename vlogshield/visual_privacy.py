@@ -54,19 +54,27 @@ def analyze_visual_privacy(path: str) -> dict[str, Any]:
         }
 
     findings: list[VisualFinding] = []
-    findings.extend(_detect_faces(cv2, image))
-    # Report a plate when either detector fires, boosting confidence when both
-    # agree. Requiring both to agree meant real plates were silently dropped
-    # whenever only one detector happened to fire -- the common case -- so
-    # plates never appeared in the risk list.
+    face_findings = _detect_faces(cv2, image)
+    findings.extend(face_findings)
+    # Two independent, high-precision plate signals:
+    #   * a saturated-red region (red plates are common and colour is a strong,
+    #     specific cue that shiny silver engine parts never match), and
+    #   * a cascade hit that a colour/shape candidate independently agrees with.
+    # Lone cascade-only or lone bright-region candidates are NOT reported: those
+    # were firing on headlights, bolts, and metal panels on vehicle close-ups.
     findings.extend(
-        _merge_plate_detections(
+        _combine_plate_detections(
+            _detect_red_plates(cv2, np, image, [f.box for f in face_findings]),
             _detect_number_plates(cv2, image),
-            _detect_plate_candidates(cv2, np, image) + _detect_red_plates(cv2, np, image),
+            _detect_plate_candidates(cv2, np, image),
         )
     )
     if os.getenv("VISUAL_BODY_HEURISTIC", "1") != "0":
-        findings.extend(_detect_skin_regions(cv2, np, image))
+        # Faces are excluded here: a selfie's face/neck is a large skin region,
+        # but it is already handled as a face and is not "sensitive body content".
+        findings.extend(
+            _detect_skin_regions(cv2, np, image, [f.box for f in face_findings])
+        )
     findings = _merge_overlapping_findings(findings)
     preview_image = _encode_image(cv2, image)
 
@@ -185,33 +193,38 @@ def _detect_faces(cv2, image) -> list[VisualFinding]:
         if box["width"] > width * 0.8 or box["height"] > height * 0.8:
             continue
 
-        eyes = 0
-        if votes < 2:
-            if gray_full is None:
-                gray_full = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            x1 = max(0, box["x"])
-            y1 = max(0, box["y"])
-            x2 = min(width, x1 + box["width"])
-            y2 = min(height, y1 + box["height"])
-            roi = gray_full[y1:y2, x1:x2]
-            if roi.size and not eye_cascade.empty():
-                eyes = len(
-                    eye_cascade.detectMultiScale(
-                        roi[: max(1, (y2 - y1) // 2), :],
-                        scaleFactor=1.1,
-                        minNeighbors=5,
-                        minSize=(12, 12),
-                    )
-                )
-            if eyes == 0:
-                continue
+        # Require visible eye structure before treating a detection as a face.
+        # This is the single strongest way to reject the round bolt heads,
+        # headlights, and shiny hardware that the frontal cascades otherwise
+        # mistake for faces on vehicle/engine close-ups.
+        if eye_cascade.empty():
+            continue
+        if gray_full is None:
+            gray_full = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        x1 = max(0, box["x"])
+        y1 = max(0, box["y"])
+        x2 = min(width, x1 + box["width"])
+        y2 = min(height, y1 + box["height"])
+        roi = gray_full[y1:y2, x1:x2]
+        if roi.size == 0:
+            continue
+        eyes = len(
+            eye_cascade.detectMultiScale(
+                roi[: max(1, (y2 - y1) // 2), :],
+                scaleFactor=1.1,
+                minNeighbors=4,
+                minSize=(12, 12),
+            )
+        )
+        if eyes == 0:
+            continue
 
         findings.append(
             VisualFinding(
                 name="Face or person identity",
                 severity="MEDIUM",
                 points=15,
-                confidence=min(0.92, 0.6 + 0.1 * votes),
+                confidence=min(0.9, 0.62 + 0.08 * votes + 0.05 * eyes),
                 box=box,
                 advice="Face-like visible content was detected and blurred in the redacted copy.",
             )
@@ -331,7 +344,7 @@ def _detect_plate_candidates(cv2, np, image) -> list[VisualFinding]:
     return [finding for _score, finding in sorted(candidates, key=lambda item: item[0], reverse=True)[:3]]
 
 
-def _detect_red_plates(cv2, np, image) -> list[VisualFinding]:
+def _detect_red_plates(cv2, np, image, face_boxes=None) -> list[VisualFinding]:
     """Locate red-background number plates (common on motorbikes/scooters).
 
     A saturated-red mask closed with a wide kernel captures the whole plate as
@@ -342,12 +355,26 @@ def _detect_red_plates(cv2, np, image) -> list[VisualFinding]:
         return []
 
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    # Real plate red measured on sample plates sits on the high-hue side
+    # (~166-180). Human skin sits on the low-hue side (~0-8) at lower
+    # saturation. So accept the high side at moderate saturation, but on the low
+    # side demand very high saturation -- that keeps genuine deep-red plates
+    # while rejecting faces, necks, arms, and warm skin tones.
     red = cv2.bitwise_or(
-        cv2.inRange(hsv, np.array([0, 90, 70]), np.array([12, 255, 255])),
-        cv2.inRange(hsv, np.array([165, 90, 70]), np.array([180, 255, 255])),
+        cv2.inRange(hsv, np.array([0, 120, 80]), np.array([7, 255, 255])),
+        cv2.inRange(hsv, np.array([166, 80, 80]), np.array([180, 255, 255])),
     )
     # Plates sit on vehicle bodies, not in the sky/upper background.
     red[: int(height * 0.30), :] = 0
+    # Skin regions already found as faces are not plates -- blank them (plus the
+    # neck below) so warm facial tones can never form a "red plate".
+    for box in face_boxes or []:
+        fx = max(0, int(box["x"]))
+        fy = max(0, int(box["y"]))
+        fx2 = min(width, fx + int(box["width"]))
+        fy2 = min(height, fy + int(box["height"]) + int(box["height"] * 0.9))
+        if fx2 > fx and fy2 > fy:
+            red[fy:fy2, fx:fx2] = 0
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 9))
     red = cv2.morphologyEx(red, cv2.MORPH_CLOSE, kernel, iterations=2)
     contours, _ = cv2.findContours(red, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -363,9 +390,17 @@ def _detect_red_plates(cv2, np, image) -> list[VisualFinding]:
             continue
         aspect = w / max(h, 1)
         extent = area / max(w * h, 1)
-        # Plates are wide rectangles; a near-square red blob is usually a
-        # tail-light or fabric, so keep the aspect floor above 1.3.
-        if not (1.3 <= aspect <= 8.0 and extent >= 0.32):
+        # Plates are wide rectangles. Allow a slightly squarer blob (angled or
+        # partly occluded plates) but demand solid fill so round tail-lights are
+        # rejected.
+        # Demand a solid, filled rectangle. Scattered red flowers/berries or
+        # foliage form a sparse blob (low fill) and are rejected here.
+        if not (1.15 <= aspect <= 8.0 and extent >= 0.45):
+            continue
+        # A real plate carries printed characters; a red balloon, flag, garment,
+        # flower cluster, or tail-light is not text. Require several text-like
+        # blobs inside the region so those red objects are not called plates.
+        if _plate_text_blobs(cv2, image, x, y, w, h) < 2:
             continue
         box = _pad_box(x, y, w, h, width, height)
         scored.append(
@@ -385,58 +420,53 @@ def _detect_red_plates(cv2, np, image) -> list[VisualFinding]:
     return [finding for _area, finding in sorted(scored, key=lambda item: item[0], reverse=True)[:3]]
 
 
-def _merge_plate_detections(
-    cascade_findings: list[VisualFinding], candidate_findings: list[VisualFinding]
-) -> list[VisualFinding]:
-    """Report plates from either detector; agreement raises confidence.
+def _plate_text_blobs(cv2, image, x, y, w, h) -> int:
+    """Count character-sized components inside a region (plate text detector)."""
+    roi = image[max(0, y): y + h, max(0, x): x + w]
+    if roi.size == 0:
+        return 0
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    binary = cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 31, 10
+    )
+    count, _labels, stats, _centroids = cv2.connectedComponentsWithStats(binary, 8)
+    roi_h, roi_w = roi.shape[:2]
+    blobs = 0
+    for index in range(1, count):
+        cw = stats[index, cv2.CC_STAT_WIDTH]
+        ch = stats[index, cv2.CC_STAT_HEIGHT]
+        ca = stats[index, cv2.CC_STAT_AREA]
+        if 0.12 * roi_h <= ch <= 0.85 * roi_h and cw < 0.4 * roi_w and ca >= 0.002 * roi_h * roi_w:
+            blobs += 1
+    return blobs
 
-    Colour/shape candidates give tighter, colour-verified boxes, so they are
-    preferred when they exist. Cascade-only hits are still reported (at lower
-    confidence) so a plate is never silently missed. The user can remove a wrong
-    box in the editor before downloading.
+
+def _combine_plate_detections(
+    red_findings: list[VisualFinding],
+    cascade_findings: list[VisualFinding],
+    candidate_findings: list[VisualFinding],
+) -> list[VisualFinding]:
+    """Report only high-precision plates: red plates, or cascade+candidate agreement.
+
+    A lone cascade hit or a lone bright-region candidate is discarded, because
+    those are what fire on headlights, chrome, and bolts in engine/vehicle
+    close-ups. Requiring colour (red) or two-detector agreement keeps real
+    plates while removing that noise.
     """
-    findings: list[VisualFinding] = []
-    used_cascade: set[int] = set()
+    findings: list[VisualFinding] = list(red_findings)
 
     for candidate in candidate_findings:
-        matched = None
-        for index, cascade in enumerate(cascade_findings):
-            if index in used_cascade:
-                continue
-            if _same_target(candidate.box, cascade.box):
-                matched = index
-                break
-        if matched is not None:
-            used_cascade.add(matched)
-            confidence = 0.82
-            advice = "A plate-like region was confirmed and blurred in the redacted copy."
-        else:
-            confidence = 0.6
-            advice = "A plate-like visible region was detected and blurred. Review the box before sharing."
-        findings.append(
-            VisualFinding(
-                name="Possible vehicle number plate",
-                severity="MEDIUM",
-                points=20,
-                confidence=confidence,
-                box=candidate.box,
-                advice=advice,
+        if any(_same_target(candidate.box, cascade.box) for cascade in cascade_findings):
+            findings.append(
+                VisualFinding(
+                    name="Possible vehicle number plate",
+                    severity="MEDIUM",
+                    points=20,
+                    confidence=0.82,
+                    box=candidate.box,
+                    advice="A plate-like region was confirmed and blurred in the redacted copy.",
+                )
             )
-        )
-
-    for index, cascade in enumerate(cascade_findings):
-        if index in used_cascade:
-            continue
-        findings.append(
-            VisualFinding(
-                name="Possible vehicle number plate",
-                severity="MEDIUM",
-                points=20,
-                confidence=0.6,
-                box=cascade.box,
-                advice="A plate-like rectangle was detected and blurred. Review the box before sharing.",
-            )
-        )
 
     kept: list[VisualFinding] = []
     for finding in sorted(findings, key=lambda item: item.confidence, reverse=True):
@@ -448,21 +478,35 @@ def _merge_plate_detections(
     return kept
 
 
-def _detect_skin_regions(cv2, np, image) -> list[VisualFinding]:
+def _detect_skin_regions(cv2, np, image, face_boxes=None) -> list[VisualFinding]:
     height, width = image.shape[:2]
     image_area = height * width
     if image_area <= 0:
         return []
 
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    lower_skin = np.array([0, 35, 55], dtype=np.uint8)
-    upper_skin = np.array([25, 170, 255], dtype=np.uint8)
-    lower_skin_alt = np.array([160, 35, 55], dtype=np.uint8)
-    upper_skin_alt = np.array([180, 170, 255], dtype=np.uint8)
+    # Higher saturation floor so overcast skies, grey mountains, roads, pale
+    # walls, and other dull skin-ish backgrounds no longer count as skin.
+    lower_skin = np.array([0, 60, 60], dtype=np.uint8)
+    upper_skin = np.array([22, 175, 255], dtype=np.uint8)
+    lower_skin_alt = np.array([162, 60, 60], dtype=np.uint8)
+    upper_skin_alt = np.array([180, 175, 255], dtype=np.uint8)
     mask = cv2.bitwise_or(
         cv2.inRange(hsv, lower_skin, upper_skin),
         cv2.inRange(hsv, lower_skin_alt, upper_skin_alt),
     )
+
+    # Remove detected faces (and the neck just below them) from the skin mask.
+    # Otherwise an ordinary head-and-shoulders selfie -- where nearly all the
+    # skin is the face -- gets mislabelled as exposed "body content".
+    for box in face_boxes or []:
+        fx = max(0, int(box["x"]))
+        fy = max(0, int(box["y"]))
+        fx2 = min(width, fx + int(box["width"]))
+        fy2 = min(height, fy + int(box["height"]) + int(box["height"] * 0.9))
+        if fx2 > fx and fy2 > fy:
+            mask[fy:fy2, fx:fx2] = 0
+
     mask = cv2.medianBlur(mask, 7)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
@@ -472,11 +516,20 @@ def _detect_skin_regions(cv2, np, image) -> list[VisualFinding]:
     for contour in contours:
         area = cv2.contourArea(contour)
         area_ratio = area / image_area
-        if area_ratio < 0.07:
+        # Only flag a genuinely large, contiguous skin area (revealing/close-up
+        # skin). A small warm patch -- a face, a hand, a bit of skin-tone
+        # background -- is not enough, which stops the false "body content" hits
+        # on ordinary clothed photos.
+        if area_ratio < 0.16:
             continue
 
         x, y, w, h = cv2.boundingRect(contour)
         if w < 80 or h < 80:
+            continue
+
+        # The blob must actually fill its box (real skin is solid, not a thin
+        # scatter of warm pixels spread across a scene).
+        if area / max(w * h, 1) < 0.45:
             continue
 
         aspect = w / max(h, 1)

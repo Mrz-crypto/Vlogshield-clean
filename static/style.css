@@ -606,6 +606,14 @@ summary:focus-visible,
   font-weight: 760;
 }
 
+.scan-id {
+  margin: 10px 0 0;
+  color: var(--teal);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
 .breakdown {
   display: flex;
   flex-wrap: wrap;

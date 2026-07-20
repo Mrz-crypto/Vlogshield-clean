@@ -139,6 +139,7 @@ class VlogShieldApiTests(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(payload["score"], 0)
         self.assertEqual(payload["grade"], "Safe")
+        self.assertRegex(payload["scan_id"], r"^[0-9a-f]{12}$")
         self.assertEqual(payload["summary"]["top_severity"], "NONE")
         self.assertIn("visual_scan", payload)
         self.assertIn("actions", payload)
