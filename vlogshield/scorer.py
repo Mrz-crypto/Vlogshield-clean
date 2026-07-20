@@ -64,6 +64,34 @@ def format_metadata_display(value):
     return cleaned
 
 
+def metadata_note(data):
+    """Explain an image that carries little or no EXIF metadata.
+
+    Messaging apps and social platforms (WhatsApp, Instagram, Facebook,
+    Messenger, etc.) re-encode images on upload and strip EXIF, so a photo
+    downloaded from them genuinely has no camera model, timestamp, or GPS -- the
+    data is gone, not hidden. Without this note the details panel just looks
+    empty, as if the scan failed.
+    """
+    key_fields = ("Make", "Model", "GPS", "DateTime", "DateTimeOriginal")
+    if any(field in data for field in key_fields):
+        return ""
+    if not data:
+        return (
+            "No embedded metadata was found in this image. Apps and platforms "
+            "such as WhatsApp, Instagram, Facebook, and Messenger strip EXIF data "
+            "when an image is uploaded or downloaded, so the camera model, capture "
+            "time, and GPS location are not stored in this file. Visual checks for "
+            "faces, number plates, and sensitive areas still run on the picture."
+        )
+    return (
+        "No camera model, timestamp, or GPS location is stored in this image. It "
+        "was most likely re-saved by a messaging app or social platform (for "
+        "example WhatsApp, Instagram, or Facebook), which removes EXIF metadata. "
+        "Visual checks still run on the picture."
+    )
+
+
 def build_summary(score, risks):
     if not risks:
         return {
@@ -174,6 +202,7 @@ def score_image(path):
         "score": score,
         "grade": grade,
         "summary": build_summary(score, risks),
+        "metadata_note": metadata_note(data),
         "risks": risks,
         "safe_fields": safe_fields,
         "actions": build_action_items(risks, safe_fields),

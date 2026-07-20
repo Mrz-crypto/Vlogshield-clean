@@ -7,9 +7,10 @@ import unittest
 from PIL import Image
 
 import vlogshield.auth as auth
-from vlogshield.app import app, normalize_metadata_value, scan_store
+from vlogshield.app import app, extract_exif, normalize_metadata_value, scan_store
 from vlogshield.auth import configure_user_store
 from vlogshield.scorer import build_action_items, format_metadata_display, grade_scan
+from vlogshield.visual_privacy import VisualFinding, _blur_findings
 
 
 def make_png_bytes():
@@ -205,6 +206,36 @@ class VlogShieldApiTests(unittest.TestCase):
             {"author": ["Ada", 2, None], "gps": {"lat": [1, 2, 3]}},
         )
 
+    def test_extract_exif_reads_nested_gps_ifd_and_formats_coordinates(self):
+        class FakeExif(dict):
+            def get_ifd(self, tag):
+                self.requested_tag = tag
+                return {
+                    1: "N",
+                    2: (27.0, 42.0, 0.0),
+                    3: "E",
+                    4: (85.0, 19.0, 30.0),
+                }
+
+        class FakeImage:
+            def __init__(self):
+                self.exif = FakeExif({34853: 12})
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def getexif(self):
+                return self.exif
+
+        with patch("vlogshield.app.Image.open", return_value=FakeImage()):
+            metadata = extract_exif("location.heic")
+
+        self.assertEqual(metadata["GPS"]["Coordinates"], "27.700000, 85.325000")
+        self.assertEqual(metadata["GPS"]["GPSLatitudeRef"], "N")
+
     def test_metadata_display_hides_control_character_noise(self):
         self.assertEqual(
             format_metadata_display("\x00\x01\x02\x03"),
@@ -260,6 +291,28 @@ class VlogShieldApiTests(unittest.TestCase):
         self.assertEqual(payload["visual_scan"]["available"], False)
         self.assertEqual(payload["visual_scan"]["risk_count"], 0)
         self.assertFalse(any(risk.get("source") == "visual" for risk in payload["risks"]))
+
+    def test_review_only_body_finding_is_not_blurred(self):
+        import cv2
+        import numpy as np
+
+        image = np.full((40, 40, 3), 120, dtype=np.uint8)
+        body_warning = VisualFinding(
+            name="Possible sensitive body content",
+            severity="MEDIUM",
+            points=20,
+            confidence=0.7,
+            box={"x": 5, "y": 5, "width": 30, "height": 30},
+            advice="Review-only warning.",
+            auto_redact=False,
+        )
+
+        output = _blur_findings(
+            cv2, image.copy(), [finding for finding in [body_warning] if finding.auto_redact]
+        )
+
+        self.assertTrue(np.array_equal(output, image))
+        self.assertFalse(body_warning.as_risk()["auto_redact"])
 
 
 if __name__ == "__main__":

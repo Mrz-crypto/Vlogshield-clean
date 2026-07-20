@@ -17,6 +17,9 @@ class VisualFinding:
     confidence: float
     box: dict[str, int]
     advice: str
+    # Findings blur in the redacted copy by default. Set False for anything that
+    # should be reported for review but not blurred automatically.
+    auto_redact: bool = True
 
     def as_risk(self) -> dict[str, Any]:
         return {
@@ -26,6 +29,7 @@ class VisualFinding:
             "advice": self.advice,
             "source": "visual",
             "box": self.box,
+            "auto_redact": self.auto_redact,
         }
 
 
@@ -51,7 +55,16 @@ def analyze_visual_privacy(path: str) -> dict[str, Any]:
 
     findings: list[VisualFinding] = []
     findings.extend(_detect_faces(cv2, image))
-    findings.extend(_detect_plate_candidates(cv2, np, image))
+    # Report a plate when either detector fires, boosting confidence when both
+    # agree. Requiring both to agree meant real plates were silently dropped
+    # whenever only one detector happened to fire -- the common case -- so
+    # plates never appeared in the risk list.
+    findings.extend(
+        _merge_plate_detections(
+            _detect_number_plates(cv2, image),
+            _detect_plate_candidates(cv2, np, image) + _detect_red_plates(cv2, np, image),
+        )
+    )
     if os.getenv("VISUAL_BODY_HEURISTIC", "1") != "0":
         findings.extend(_detect_skin_regions(cv2, np, image))
     findings = _merge_overlapping_findings(findings)
@@ -66,7 +79,9 @@ def analyze_visual_privacy(path: str) -> dict[str, Any]:
             "available": True,
         }
 
-    redacted = _blur_findings(cv2, image.copy(), findings)
+    redacted = _blur_findings(
+        cv2, image.copy(), [finding for finding in findings if finding.auto_redact]
+    )
     redacted_image = _encode_image(cv2, redacted)
 
     return {
@@ -92,37 +107,112 @@ def _encode_image(cv2, image) -> str | None:
     return "data:image/jpeg;base64," + b64encode(encoded.tobytes()).decode("ascii")
 
 
+# Upright frontal cascades miss faces that are tilted or resting on a hand.
+# Running detection on a few rotated copies of the image recovers them.
+_FACE_ROTATIONS = (-30, -20, -12, 0, 12, 20, 30)
+
+
 def _detect_faces(cv2, image) -> list[VisualFinding]:
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    cascade_path = Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"
-    eye_cascade_path = Path(cv2.data.haarcascades) / "haarcascade_eye.xml"
-    cascade = cv2.CascadeClassifier(str(cascade_path))
-    eye_cascade = cv2.CascadeClassifier(str(eye_cascade_path))
-    if cascade.empty() or eye_cascade.empty():
+    height, width = image.shape[:2]
+    if height <= 0 or width <= 0:
         return []
 
-    boxes = cascade.detectMultiScale(gray, scaleFactor=1.05, minNeighbors=8, minSize=(56, 56))
-    findings: list[VisualFinding] = []
-    for x, y, w, h in boxes:
-        roi = gray[y : y + h, x : x + w]
-        upper_face = roi[: max(1, h // 2), :]
-        eyes = eye_cascade.detectMultiScale(
-            upper_face,
-            scaleFactor=1.08,
-            minNeighbors=5,
-            minSize=(10, 10),
-        )
+    # Work on a normalised resolution. Haar cascades are slow and noisy on
+    # multi-megapixel photos: they miss the obvious large face while emitting
+    # tiny false positives on wheels and bodywork. Scaling the long side to
+    # ~1024px fixes both problems.
+    scale = min(1.0, 1024.0 / max(height, width))
+    work = cv2.resize(image, (int(width * scale), int(height * scale))) if scale < 1.0 else image
+    gray = cv2.equalizeHist(cv2.cvtColor(work, cv2.COLOR_BGR2GRAY))
+    work_h, work_w = gray.shape[:2]
 
-        if len(eyes) == 0:
+    haar = Path(cv2.data.haarcascades)
+    cascades = []
+    for name in ("haarcascade_frontalface_alt2.xml", "haarcascade_frontalface_default.xml"):
+        clf = cv2.CascadeClassifier(str(haar / name))
+        if not clf.empty():
+            cascades.append(clf)
+    if not cascades:
+        return []
+    eye_cascade = cv2.CascadeClassifier(str(haar / "haarcascade_eye.xml"))
+
+    centre = (work_w / 2.0, work_h / 2.0)
+    min_side = max(28, int(min(work_h, work_w) * 0.05))
+    raw: list[dict[str, int]] = []
+    for angle in _FACE_ROTATIONS:
+        if angle:
+            rot_m = cv2.getRotationMatrix2D(centre, angle, 1.0)
+            inv_m = cv2.getRotationMatrix2D(centre, -angle, 1.0)
+            frame = cv2.warpAffine(gray, rot_m, (work_w, work_h))
+        else:
+            inv_m = None
+            frame = gray
+        for clf in cascades:
+            for x, y, w, h in clf.detectMultiScale(frame, 1.1, 5, minSize=(min_side, min_side)):
+                cx, cy = x + w / 2.0, y + h / 2.0
+                if inv_m is not None:
+                    cx, cy = (
+                        inv_m[0, 0] * cx + inv_m[0, 1] * cy + inv_m[0, 2],
+                        inv_m[1, 0] * cx + inv_m[1, 1] * cy + inv_m[1, 2],
+                    )
+                raw.append(
+                    _box_dict(
+                        int((cx - w / 2.0) / scale),
+                        int((cy - h / 2.0) / scale),
+                        int(w / scale),
+                        int(h / scale),
+                    )
+                )
+
+    # Cluster the raw hits. A face found from several angles is trustworthy; a
+    # lone hit must additionally show eye structure to be kept, which removes
+    # the small false positives on background texture.
+    clusters: list[dict[str, Any]] = []
+    for box in raw:
+        for cluster in clusters:
+            if _same_target(box, cluster["box"]):
+                cluster["votes"] += 1
+                break
+        else:
+            clusters.append({"box": box, "votes": 1})
+
+    gray_full = None
+    findings: list[VisualFinding] = []
+    for cluster in clusters:
+        box = cluster["box"]
+        votes = cluster["votes"]
+        # Rotation can occasionally return a box covering most of the frame.
+        if box["width"] > width * 0.8 or box["height"] > height * 0.8:
             continue
+
+        eyes = 0
+        if votes < 2:
+            if gray_full is None:
+                gray_full = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            x1 = max(0, box["x"])
+            y1 = max(0, box["y"])
+            x2 = min(width, x1 + box["width"])
+            y2 = min(height, y1 + box["height"])
+            roi = gray_full[y1:y2, x1:x2]
+            if roi.size and not eye_cascade.empty():
+                eyes = len(
+                    eye_cascade.detectMultiScale(
+                        roi[: max(1, (y2 - y1) // 2), :],
+                        scaleFactor=1.1,
+                        minNeighbors=5,
+                        minSize=(12, 12),
+                    )
+                )
+            if eyes == 0:
+                continue
 
         findings.append(
             VisualFinding(
                 name="Face or person identity",
                 severity="MEDIUM",
                 points=15,
-                confidence=0.8 if len(eyes) >= 2 else 0.68,
-                box=_box_dict(x, y, w, h),
+                confidence=min(0.92, 0.6 + 0.1 * votes),
+                box=box,
                 advice="Face-like visible content was detected and blurred in the redacted copy.",
             )
         )
@@ -134,7 +224,7 @@ def _detect_number_plates(cv2, image) -> list[VisualFinding]:
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     cascade_names = [
         "haarcascade_russian_plate_number.xml",
-        "haarcascade_licence_plate_rus_16stages.xml",
+        "haarcascade_license_plate_rus_16stages.xml",
     ]
     findings: list[VisualFinding] = []
 
@@ -158,7 +248,21 @@ def _detect_number_plates(cv2, image) -> list[VisualFinding]:
             for x, y, w, h in boxes
         )
 
-    return findings
+    # Haar plate cascades can emit several overlapping proposals around the
+    # same vehicle. Keep only the strongest, distinct candidates so a photo is
+    # never covered by a collection of near-duplicate blur boxes.
+    kept: list[VisualFinding] = []
+    for finding in sorted(
+        findings,
+        key=lambda item: item.box["width"] * item.box["height"],
+        reverse=True,
+    ):
+        if any(_same_target(finding.box, existing.box) for existing in kept):
+            continue
+        kept.append(finding)
+        if len(kept) == 3:
+            break
+    return kept
 
 
 def _detect_plate_candidates(cv2, np, image) -> list[VisualFinding]:
@@ -204,7 +308,10 @@ def _detect_plate_candidates(cv2, np, image) -> list[VisualFinding]:
         if plate_color_ratio < 0.08:
             continue
 
-        box = _refine_plate_box(cv2, plate_color, x, y, w, h, width, height)
+        # The candidate contour has already passed tight geometry and colour
+        # checks. Large refinement searches were swallowing monitors and other
+        # nearby objects, resulting in giant redaction boxes.
+        box = _pad_box(x, y, w, h, width, height)
         box_area = box["width"] * box["height"]
         score = box_area * (1 + (box["y"] / max(height, 1)))
         candidates.append(
@@ -222,6 +329,123 @@ def _detect_plate_candidates(cv2, np, image) -> list[VisualFinding]:
         )
 
     return [finding for _score, finding in sorted(candidates, key=lambda item: item[0], reverse=True)[:3]]
+
+
+def _detect_red_plates(cv2, np, image) -> list[VisualFinding]:
+    """Locate red-background number plates (common on motorbikes/scooters).
+
+    A saturated-red mask closed with a wide kernel captures the whole plate as
+    one blob, so the blur covers the full number instead of a stray fragment.
+    """
+    height, width = image.shape[:2]
+    if height <= 0 or width <= 0:
+        return []
+
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    red = cv2.bitwise_or(
+        cv2.inRange(hsv, np.array([0, 90, 70]), np.array([12, 255, 255])),
+        cv2.inRange(hsv, np.array([165, 90, 70]), np.array([180, 255, 255])),
+    )
+    # Plates sit on vehicle bodies, not in the sky/upper background.
+    red[: int(height * 0.30), :] = 0
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 9))
+    red = cv2.morphologyEx(red, cv2.MORPH_CLOSE, kernel, iterations=2)
+    contours, _ = cv2.findContours(red, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    image_area = width * height
+    scored = []
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area < image_area * 0.0005 or area > image_area * 0.05:
+            continue
+        x, y, w, h = cv2.boundingRect(contour)
+        if w < 50 or h < 15:
+            continue
+        aspect = w / max(h, 1)
+        extent = area / max(w * h, 1)
+        # Plates are wide rectangles; a near-square red blob is usually a
+        # tail-light or fabric, so keep the aspect floor above 1.3.
+        if not (1.3 <= aspect <= 8.0 and extent >= 0.32):
+            continue
+        box = _pad_box(x, y, w, h, width, height)
+        scored.append(
+            (
+                area,
+                VisualFinding(
+                    name="Possible vehicle number plate",
+                    severity="MEDIUM",
+                    points=20,
+                    confidence=0.8,
+                    box=box,
+                    advice="A number-plate-coloured region was detected and blurred in the redacted copy.",
+                ),
+            )
+        )
+
+    return [finding for _area, finding in sorted(scored, key=lambda item: item[0], reverse=True)[:3]]
+
+
+def _merge_plate_detections(
+    cascade_findings: list[VisualFinding], candidate_findings: list[VisualFinding]
+) -> list[VisualFinding]:
+    """Report plates from either detector; agreement raises confidence.
+
+    Colour/shape candidates give tighter, colour-verified boxes, so they are
+    preferred when they exist. Cascade-only hits are still reported (at lower
+    confidence) so a plate is never silently missed. The user can remove a wrong
+    box in the editor before downloading.
+    """
+    findings: list[VisualFinding] = []
+    used_cascade: set[int] = set()
+
+    for candidate in candidate_findings:
+        matched = None
+        for index, cascade in enumerate(cascade_findings):
+            if index in used_cascade:
+                continue
+            if _same_target(candidate.box, cascade.box):
+                matched = index
+                break
+        if matched is not None:
+            used_cascade.add(matched)
+            confidence = 0.82
+            advice = "A plate-like region was confirmed and blurred in the redacted copy."
+        else:
+            confidence = 0.6
+            advice = "A plate-like visible region was detected and blurred. Review the box before sharing."
+        findings.append(
+            VisualFinding(
+                name="Possible vehicle number plate",
+                severity="MEDIUM",
+                points=20,
+                confidence=confidence,
+                box=candidate.box,
+                advice=advice,
+            )
+        )
+
+    for index, cascade in enumerate(cascade_findings):
+        if index in used_cascade:
+            continue
+        findings.append(
+            VisualFinding(
+                name="Possible vehicle number plate",
+                severity="MEDIUM",
+                points=20,
+                confidence=0.6,
+                box=cascade.box,
+                advice="A plate-like rectangle was detected and blurred. Review the box before sharing.",
+            )
+        )
+
+    kept: list[VisualFinding] = []
+    for finding in sorted(findings, key=lambda item: item.confidence, reverse=True):
+        if any(_same_target(finding.box, existing.box) for existing in kept):
+            continue
+        kept.append(finding)
+        if len(kept) == 3:
+            break
+    return kept
 
 
 def _detect_skin_regions(cv2, np, image) -> list[VisualFinding]:
@@ -266,7 +490,11 @@ def _detect_skin_regions(cv2, np, image) -> list[VisualFinding]:
                 points=20,
                 confidence=min(0.88, 0.5 + area_ratio),
                 box=_box_dict(x, y, w, h),
-                advice="A large skin-tone region was detected. Review or adjust the blur before sharing.",
+                advice=(
+                    "A large skin-tone region was detected and blurred in the "
+                    "redacted copy. Remove the box if it covers clothing or "
+                    "background rather than skin."
+                ),
             )
         )
 
@@ -294,9 +522,15 @@ def _blur_findings(cv2, image, findings: list[VisualFinding]):
 
 
 def _merge_overlapping_findings(findings: list[VisualFinding]) -> list[VisualFinding]:
+    # Only collapse duplicates of the *same* kind. A face sitting inside a large
+    # skin region must still be reported as a face -- otherwise a big body box
+    # would silently swallow the face finding and its blur.
     kept: list[VisualFinding] = []
     for finding in sorted(findings, key=lambda item: item.points, reverse=True):
-        if any(_same_target(finding.box, other.box) for other in kept):
+        if any(
+            finding.name == other.name and _same_target(finding.box, other.box)
+            for other in kept
+        ):
             continue
         kept.append(finding)
     return kept[:12]

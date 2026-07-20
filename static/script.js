@@ -565,6 +565,13 @@ function renderResult(data) {
     renderEmptyRisk();
   }
 
+  const noteEl = document.getElementById("metadataNote");
+  if (noteEl) {
+    const note = data.metadata_note || "";
+    noteEl.textContent = note;
+    noteEl.hidden = note.length === 0;
+  }
+
   const safeWrap = document.getElementById("safe-wrap");
   safeWrap.hidden = safe.length === 0;
   safeWrap.open = safe.length > 0;
@@ -663,7 +670,10 @@ function renderServerPreview(visualScan) {
 
 function syncDetectedRedactions(risks) {
   const detectedBoxes = risks
-    .filter((risk) => risk.source === "visual" && risk.box)
+    // Body-content heuristics are review-only: do not turn an uncertain,
+    // broad region into an automatic blur box. Faces and plates remain
+    // editable redactions.
+    .filter((risk) => risk.source === "visual" && risk.box && risk.auto_redact !== false)
     .map((risk) => ({
       x1: risk.box.x,
       y1: risk.box.y,

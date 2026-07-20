@@ -688,6 +688,17 @@ summary:focus-visible,
   line-height: 1.5;
 }
 
+.metadata-note {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(37, 199, 183, 0.35);
+  border-radius: 10px;
+  background: rgba(37, 199, 183, 0.08);
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
 .download-link {
   color: var(--teal);
   font-size: 0.86rem;
