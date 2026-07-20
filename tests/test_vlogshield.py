@@ -10,6 +10,7 @@ import vlogshield.auth as auth
 from vlogshield.app import app, normalize_metadata_value, scan_store
 from vlogshield.auth import configure_user_store
 from vlogshield.scorer import build_action_items, format_metadata_display, grade_scan
+from vlogshield.visual_privacy import VisualFinding, _blur_findings
 
 
 def make_png_bytes():
@@ -260,6 +261,28 @@ class VlogShieldApiTests(unittest.TestCase):
         self.assertEqual(payload["visual_scan"]["available"], False)
         self.assertEqual(payload["visual_scan"]["risk_count"], 0)
         self.assertFalse(any(risk.get("source") == "visual" for risk in payload["risks"]))
+
+    def test_review_only_body_finding_is_not_blurred(self):
+        import cv2
+        import numpy as np
+
+        image = np.full((40, 40, 3), 120, dtype=np.uint8)
+        body_warning = VisualFinding(
+            name="Possible sensitive body content",
+            severity="MEDIUM",
+            points=20,
+            confidence=0.7,
+            box={"x": 5, "y": 5, "width": 30, "height": 30},
+            advice="Review-only warning.",
+            auto_redact=False,
+        )
+
+        output = _blur_findings(
+            cv2, image.copy(), [finding for finding in [body_warning] if finding.auto_redact]
+        )
+
+        self.assertTrue(np.array_equal(output, image))
+        self.assertFalse(body_warning.as_risk()["auto_redact"])
 
 
 if __name__ == "__main__":

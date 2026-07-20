@@ -663,7 +663,10 @@ function renderServerPreview(visualScan) {
 
 function syncDetectedRedactions(risks) {
   const detectedBoxes = risks
-    .filter((risk) => risk.source === "visual" && risk.box)
+    // Body-content heuristics are review-only: do not turn an uncertain,
+    // broad region into an automatic blur box. Faces and plates remain
+    // editable redactions.
+    .filter((risk) => risk.source === "visual" && risk.box && risk.auto_redact !== false)
     .map((risk) => ({
       x1: risk.box.x,
       y1: risk.box.y,
