@@ -129,16 +129,56 @@ def extract_exif(path):
         return {}
 
     out = {}
+    # GPS is a nested EXIF IFD (tag 34853), rather than an ordinary top-level
+    # field. Some HEIC decoders expose only this nested form, so reading the
+    # value directly can make a location-tagged original appear to have no GPS.
+    gps_tag = next((tag for tag, name in TAGS.items() if name == "GPSInfo"), 34853)
+    try:
+        gps_values = raw.get_ifd(gps_tag)
+    except (AttributeError, KeyError, TypeError, ValueError):
+        gps_values = raw.get(gps_tag, {})
+
+    if gps_values:
+        gps = {
+            GPSTAGS.get(key, str(key)): normalize_metadata_value(value)
+            for key, value in gps_values.items()
+        }
+        coordinates = _format_gps_coordinates(gps)
+        if coordinates:
+            gps["Coordinates"] = coordinates
+        out["GPS"] = gps
+
     for tag_id, value in dict(raw).items():
         name = TAGS.get(tag_id, str(tag_id))
         if name == "GPSInfo":
-            out["GPS"] = {
-                GPSTAGS.get(k, str(k)): normalize_metadata_value(v)
-                for k, v in value.items()
-            }
+            # Handled above with get_ifd(), which also works when this top-level
+            # value is merely an offset into the nested GPS metadata.
+            continue
         else:
             out[name] = normalize_metadata_value(value)
     return out
+
+
+def _format_gps_coordinates(gps):
+    """Return GPS EXIF degrees/minutes/seconds as readable decimal coordinates."""
+    latitude = _gps_decimal(gps.get("GPSLatitude"), gps.get("GPSLatitudeRef"))
+    longitude = _gps_decimal(gps.get("GPSLongitude"), gps.get("GPSLongitudeRef"))
+    if latitude is None or longitude is None:
+        return None
+    return f"{latitude:.6f}, {longitude:.6f}"
+
+
+def _gps_decimal(value, direction):
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        return None
+    try:
+        degrees, minutes, seconds = (float(part) for part in value)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+    decimal = degrees + minutes / 60 + seconds / 3600
+    if str(direction).upper() in {"S", "W"}:
+        decimal *= -1
+    return decimal
 
 
 @app.before_request

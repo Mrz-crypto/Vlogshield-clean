@@ -565,6 +565,13 @@ function renderResult(data) {
     renderEmptyRisk();
   }
 
+  const noteEl = document.getElementById("metadataNote");
+  if (noteEl) {
+    const note = data.metadata_note || "";
+    noteEl.textContent = note;
+    noteEl.hidden = note.length === 0;
+  }
+
   const safeWrap = document.getElementById("safe-wrap");
   safeWrap.hidden = safe.length === 0;
   safeWrap.open = safe.length > 0;

@@ -7,7 +7,7 @@ import unittest
 from PIL import Image
 
 import vlogshield.auth as auth
-from vlogshield.app import app, normalize_metadata_value, scan_store
+from vlogshield.app import app, extract_exif, normalize_metadata_value, scan_store
 from vlogshield.auth import configure_user_store
 from vlogshield.scorer import build_action_items, format_metadata_display, grade_scan
 from vlogshield.visual_privacy import VisualFinding, _blur_findings
@@ -205,6 +205,36 @@ class VlogShieldApiTests(unittest.TestCase):
             normalize_metadata_value(value),
             {"author": ["Ada", 2, None], "gps": {"lat": [1, 2, 3]}},
         )
+
+    def test_extract_exif_reads_nested_gps_ifd_and_formats_coordinates(self):
+        class FakeExif(dict):
+            def get_ifd(self, tag):
+                self.requested_tag = tag
+                return {
+                    1: "N",
+                    2: (27.0, 42.0, 0.0),
+                    3: "E",
+                    4: (85.0, 19.0, 30.0),
+                }
+
+        class FakeImage:
+            def __init__(self):
+                self.exif = FakeExif({34853: 12})
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def getexif(self):
+                return self.exif
+
+        with patch("vlogshield.app.Image.open", return_value=FakeImage()):
+            metadata = extract_exif("location.heic")
+
+        self.assertEqual(metadata["GPS"]["Coordinates"], "27.700000, 85.325000")
+        self.assertEqual(metadata["GPS"]["GPSLatitudeRef"], "N")
 
     def test_metadata_display_hides_control_character_noise(self):
         self.assertEqual(
