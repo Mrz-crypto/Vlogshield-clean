@@ -120,7 +120,7 @@ Scanner routes require login. `/health`, `/login`, `/register`, and static asset
 Run the backend tests from the project root:
 
 ```bash
-python -m unittest discover
+python run_tests.py
 ```
 
 The tests cover health checks, security headers, upload validation, clean-image scans, privacy-safe history, and metadata normalization.
