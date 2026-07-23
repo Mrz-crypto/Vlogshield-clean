@@ -551,6 +551,11 @@ function renderResult(data) {
   updateGrade(data.grade || "Safe");
   document.getElementById("summary").textContent = data.summary?.headline || "Scan complete.";
   document.getElementById("nextStep").textContent = data.summary?.next_step || "Review the metadata before sharing.";
+  const scanIdEl = document.getElementById("scanId");
+  if (scanIdEl) {
+    scanIdEl.textContent = data.scan_id ? `Database scan ID: ${data.scan_id}` : "";
+    scanIdEl.hidden = !data.scan_id;
+  }
   document.getElementById("riskCount").textContent = String(risks.length);
   document.getElementById("progressFill").style.width = `${score}%`;
   renderBreakdown(data.risk_breakdown || {});
@@ -584,6 +589,7 @@ function renderResult(data) {
 function buildScanReport(data) {
   const lines = [
     "VlogShield scan report",
+    `Database scan ID: ${data.scan_id || "Not stored"}`,
     `Score: ${data.score || 0}/100 (${data.grade || "Unknown"})`,
     "",
     "Summary:",

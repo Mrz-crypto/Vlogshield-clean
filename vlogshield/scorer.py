@@ -263,7 +263,11 @@ def scan():
         request_count["successful"] += 1
 
         file_type = Path(original_name).suffix.lower().lstrip(".") or "image"
-        scan_store.add_scan(file_type, result)
+        stored_scan = scan_store.add_scan(file_type, result)
+        # The database intentionally never keeps the uploaded filename or image.
+        # Return its privacy-safe ID so the person scanning can identify this
+        # exact row in the scans table.
+        result["scan_id"] = stored_scan["scan_id"]
 
         logger.info(f"Image scan completed - Score: {result['score']}")
         return jsonify(result)
